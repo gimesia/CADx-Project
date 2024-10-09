@@ -3,14 +3,14 @@ import random
 import numpy as np
 import torch
 from matplotlib import pyplot as plt
-from torchvision import datasets, transforms
 from torch.utils.data import DataLoader
+from torchvision import datasets, transforms
 
 from utils.preprocessing import PreprocessingFactory, PreprocessMelanoma
 
 
 class Loader:
-    def __init__(self, path:str, batch_size=32, transform=None):
+    def __init__(self, path: str, batch_size=32, transform=None):
 
         # Default transformations (if none provided)
         if transform is None:
@@ -88,8 +88,6 @@ class Loader:
 
         plt.tight_layout()
         plt.show()
-
-
 
 
 class FactoryLoader:
