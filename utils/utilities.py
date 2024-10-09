@@ -3,9 +3,11 @@ import random
 import numpy as np
 import torch
 from matplotlib import pyplot as plt
-from numpy import number
 from torchvision import datasets, transforms
 from torch.utils.data import DataLoader
+
+from utils.preprocessing import PreprocessingFactory, PreprocessMelanoma
+
 
 class Loader:
     def __init__(self, path:str, batch_size=32, transform=None):
@@ -16,6 +18,7 @@ class Loader:
                 transforms.ToTensor(),  # Convert image to PyTorch tensor
             ])
 
+        # Load the dataset using the transformation pipeline
         self.dataset = datasets.ImageFolder(path, transform=transform)
         self.batch_size = batch_size
         self.__instance = None
@@ -86,58 +89,80 @@ class Loader:
         plt.tight_layout()
         plt.show()
 
-# STATISTICAL FUNCTIONS FROM DATALOADER
-def pixel_level_stats(dataloader: DataLoader):
-    # Initialize variables to compute mean and std
-    pixel_sum = 0
-    pixel_squared_sum = 0
-    num_batches = 0
-    num_pixels = 0
-
-    # Iterate over the DataLoader to accumulate statistics
-    for images, _ in dataloader:
-        num_batches += 1
-        num_pixels += images.numel() / images.shape[0]  # Number of pixels per image (batch_size, channels, height, width)
-
-        # Compute the sum and squared sum of pixels
-        pixel_sum += images.sum()
-        pixel_squared_sum += (images ** 2).sum()
-
-    # Compute mean and standard deviation across all images
-    mean = pixel_sum / (num_batches * num_pixels)
-    std = torch.sqrt((pixel_squared_sum / (num_batches * num_pixels)) - (mean ** 2))
-
-    print(f"Mean: {mean.item()}, Standard Deviation: {std.item()}")
 
 
-def color_channel_stats(dataloader: DataLoader):
-    # Initialize variables to compute mean and std
-    num_batches = 0
-    num_pixels = 0
-    # Initialize variables for RGB channel statistics
-    r_sum, g_sum, b_sum = 0, 0, 0
-    r_squared_sum, g_squared_sum, b_squared_sum = 0, 0, 0
 
-    for images, _ in dataloader:
-        num_batches += 1
-        num_pixels += images.numel() / images.shape[0]  # Number of pixels per image (batch_size, channels, height, width)
+class FactoryLoader:
+    def __init__(self, path: str, batch_size=32, factory: PreprocessingFactory = None):
 
-        r_sum += images[:, 0, :, :].sum()  # Red channel
-        g_sum += images[:, 1, :, :].sum()  # Green channel
-        b_sum += images[:, 2, :, :].sum()  # Blue channel
+        # Define the transformation pipeline
+        if factory is not None:
+            transform = transforms.Compose([
+                transforms.Lambda(lambda img: np.array(img)),  # Convert PIL to NumPy
+                PreprocessMelanoma(factory),  # Apply the factory-based preprocessing
+            ])
+        else:
+            # Default transformation if no factory is provided
+            transform = transforms.Compose([
+                transforms.ToTensor(),  # Convert image to PyTorch tensor
+            ])
 
-        r_squared_sum += (images[:, 0, :, :] ** 2).sum()
-        g_squared_sum += (images[:, 1, :, :] ** 2).sum()
-        b_squared_sum += (images[:, 2, :, :] ** 2).sum()
+        # Load the dataset using the transformation pipeline
+        self.dataset = datasets.ImageFolder(path, transform=transform)
+        self.batch_size = batch_size
+        self.__instance = None
 
-    # Compute mean and standard deviation per channel
-    r_mean = r_sum / (num_batches * num_pixels / 3)
-    g_mean = g_sum / (num_batches * num_pixels / 3)
-    b_mean = b_sum / (num_batches * num_pixels / 3)
+    def get_loader(self, shuffle=False) -> DataLoader:
+        # Create DataLoader
+        if self.__instance is None:
+            self.__instance = DataLoader(dataset=self.dataset, batch_size=self.batch_size, shuffle=shuffle)
+        return self.__instance
 
-    r_std = torch.sqrt((r_squared_sum / (num_batches * num_pixels / 3)) - (r_mean ** 2))
-    g_std = torch.sqrt((g_squared_sum / (num_batches * num_pixels / 3)) - (g_mean ** 2))
-    b_std = torch.sqrt((b_squared_sum / (num_batches * num_pixels / 3)) - (b_mean ** 2))
+    def get_num_classes(self) -> int:
+        return len(self.dataset.classes)
 
-    print(f"R Mean: {r_mean.item()}, G Mean: {g_mean.item()}, B Mean: {b_mean.item()}")
-    print(f"R Std: {r_std.item()}, G Std: {g_std.item()}, B Std: {b_std.item()}")
+    def show_images(self, num_images=8, randomize=False):
+        # Determine number of rows and columns for the grid
+        num_columns = 4
+        num_rows = (num_images + num_columns - 1) // num_columns
+
+        loader = self.get_loader()
+
+        images_list = []
+        labels_list = []
+
+        for batch in loader:
+            images, labels = batch
+            images = images.permute(0, 2, 3, 1).numpy()
+
+            images_list.append(images)
+            labels_list.append(labels)
+
+            if sum(len(imgs) for imgs in images_list) >= num_images:
+                break
+
+        all_images = np.concatenate(images_list, axis=0)
+        all_labels = torch.cat(labels_list, dim=0)
+
+        indices = list(range(len(all_images)))
+        if randomize:
+            random.shuffle(indices)
+
+        selected_indices = indices[:num_images]
+
+        fig, axs = plt.subplots(num_rows, num_columns, figsize=(15, 5 * num_rows))
+        axs = axs.flatten()
+
+        for i, idx in enumerate(selected_indices):
+            image = all_images[idx]
+            label = all_labels[idx].item()
+
+            axs[i].imshow(np.squeeze(image))
+            axs[i].set_title(f"idx: {idx}; label: {label}")
+            axs[i].axis('off')
+
+        for i in range(num_images, len(axs)):
+            axs[i].axis('off')
+
+        plt.tight_layout()
+        plt.show()
