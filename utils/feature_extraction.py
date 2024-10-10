@@ -1,7 +1,7 @@
 import numpy as np
 from torch.utils.data import DataLoader
 
-# Define the base FeatureExtractor class (Strategy Pattern)
+# Base FeatureExtractor class (Strategy Pattern)
 class FeatureExtractor:
     def __init__(self, name: str):
         self.name = name
@@ -15,7 +15,6 @@ class FeatureExtractor:
 
 
 # Specific feature extraction strategies
-
 class MeanExtractor(FeatureExtractor):
     def __init__(self):
         super().__init__(name="mean")
@@ -64,7 +63,7 @@ class MaxExtractor(FeatureExtractor):
         return [f"{self.name}_channel_{i}" for i in range(3)]
 
 
-# Feature extraction pipeline class
+# Feature extraction pipeline
 class FeatureExtractionPipeline:
     def __init__(self):
         self.extractors = []
@@ -85,7 +84,7 @@ class FeatureExtractionPipeline:
         return feature_names
 
 
-# extract_features function that uses the feature extraction pipeline and the dataloader
+# The extract_features function will now use the feature extraction pipeline
 def extract_features(loader: DataLoader, feature_extraction: FeatureExtractionPipeline):
     feature_vectors = []
 
@@ -102,7 +101,7 @@ def extract_features(loader: DataLoader, feature_extraction: FeatureExtractionPi
             # Add to feature vector list
             feature_vectors.append(feature_vector)
 
-    # Convert list of feature vectors to a NumPy array
+    # Convert list of feature vectors to a numpy array
     feature_matrix = np.array(feature_vectors)
 
     return feature_matrix

@@ -106,18 +106,25 @@ class FactoryLoader:
             ])
 
         # Load the dataset using the transformation pipeline
-        self.dataset = datasets.ImageFolder(path, transform=transform)
         self.batch_size = batch_size
+        self.__factory = factory
+        self.__dataset = datasets.ImageFolder(path, transform=transform)
         self.__instance = None
 
     def get_loader(self, shuffle=False) -> DataLoader:
         # Create DataLoader
         if self.__instance is None:
-            self.__instance = DataLoader(dataset=self.dataset, batch_size=self.batch_size, shuffle=shuffle)
+            self.__instance = DataLoader(dataset=self.__dataset, batch_size=self.batch_size, shuffle=shuffle)
         return self.__instance
 
     def get_num_classes(self) -> int:
-        return len(self.dataset.classes)
+        return len(self.__dataset.classes)
+
+    def get_classes(self) -> list:
+        return self.__dataset.classes
+
+    def get_transformation_steps(self):
+        return self.__factory.get_steps()
 
     def show_images(self, num_images=8, randomize=False):
         # Determine number of rows and columns for the grid
