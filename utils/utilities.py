@@ -5,12 +5,13 @@ import torch
 from matplotlib import pyplot as plt
 from torch.utils.data import DataLoader
 from torchvision import datasets, transforms
+from torch.utils.data import Subset
 
 from utils.preprocessing import PreprocessingFactory, PreprocessMelanoma
 
 
 class Loader:
-    def __init__(self, path: str, batch_size=32, transform=None):
+    def __init__(self, path: str, batch_size=32, transform=None, percentage = 100):
 
         # Default transformations (if none provided)
         if transform is None:
@@ -21,6 +22,16 @@ class Loader:
         # Load the dataset using the transformation pipeline
         self.dataset = datasets.ImageFolder(path, transform=transform)
         self.batch_size = batch_size
+        
+
+        total_images = len(self.dataset)
+        num_imgs_load = int(total_images * (percentage / 100.0))
+
+        indices = list(range(total_images))
+        random.shuffle(indices)
+        subset_indices = indices[:num_imgs_load]
+
+        self.dataset = Subset(self.dataset, subset_indices)
         self.__instance = None
 
     def get_loader(self, shuffle=False) -> DataLoader:
@@ -31,7 +42,10 @@ class Loader:
 
     def get_num_classes(self) -> int:
         # Return number of classes (should be 2 for binary classification, n for multiclass)
-        return len(self.dataset.classes)
+        return len(self.dataset.dataset.classes)
+    
+    def __len__(self):
+        return len(self.dataset)
 
     def show_images(self, num_images=8, randomize=False):
         # Determine number of rows based on number of images and fixed 4 columns
@@ -91,7 +105,7 @@ class Loader:
 
 
 class FactoryLoader:
-    def __init__(self, path: str, batch_size=32, factory: PreprocessingFactory = None):
+    def __init__(self, path: str, batch_size=32, factory: PreprocessingFactory = None, percentage = 100):
 
         # Define the transformation pipeline
         if factory is not None:
@@ -109,6 +123,20 @@ class FactoryLoader:
         self.batch_size = batch_size
         self.__factory = factory
         self.__dataset = datasets.ImageFolder(path, transform=transform)
+        
+        #percentage based filtering
+        total_images = len(self.__dataset)
+        num_imgs_load = int(total_images * (percentage / 100.0))
+
+
+        #Select randomly
+        indices = list(range(total_images))
+        random.shuffle(indices)
+        subset_indices = indices[:num_imgs_load]
+
+        #Create subset
+        self.__dataset = Subset(self.__dataset, subset_indices)
+
         self.__instance = None
 
     def get_loader(self, shuffle=False) -> DataLoader:
@@ -125,6 +153,9 @@ class FactoryLoader:
 
     def get_transformation_steps(self):
         return self.__factory.get_steps()
+    
+    def __len__(self):
+        return len(self.__dataset)
 
     def show_images(self, num_images=8, randomize=False):
         # Determine number of rows and columns for the grid
