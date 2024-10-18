@@ -94,9 +94,10 @@ class LBPExtractor(FeatureExtractor):
         return [f"{self.name}_bin_{i}" for i in range(self.n_points + 2)]
 
 # Feature extraction pipeline
-class FeatureExtractionPipeline:
+class FeatureExtractionStrategy:
     def __init__(self):
         self.extractors = []
+        self.feature_vectors = None
 
     def add_extractor(self, extractor: FeatureExtractor):
         self.extractors.append(extractor)
@@ -114,8 +115,31 @@ class FeatureExtractionPipeline:
         return feature_names
 
 
+    def run(self, loader: DataLoader):
+        feature_vectors = []
+
+        for batch in loader:
+            images, labels = batch
+
+            # Iterate through images in the batch
+            for image in images:
+                image_np = image.numpy()  # Convert tensor to NumPy
+
+                # Extract features using the provided pipeline
+                feature_vector = self.extract_features(image_np)
+
+                # Add to feature vector list
+                feature_vectors.append(feature_vector)
+
+        # Convert list of feature vectors to a numpy array
+        feature_matrix = np.array(feature_vectors)
+        self.feature_vectors = feature_matrix
+
+        return self.feature_vectors
+
+
 # The extract_features function will now use the feature extraction pipeline
-def extract_features(loader: DataLoader, feature_extraction: FeatureExtractionPipeline):
+def extract_features(loader: DataLoader, feature_extraction: FeatureExtractionStrategy):
     feature_vectors = []
 
     for batch in loader:
