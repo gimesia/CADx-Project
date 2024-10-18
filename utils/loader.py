@@ -106,7 +106,7 @@ class Loader:
 
 class FactoryLoader:
     def __init__(self, path: str, batch_size=32,
-                 factory: PreprocessingFactory=None, percentage=100, shuffle=False):
+                 factory: PreprocessingFactory = None, percentage=100, shuffle=False):
 
         # Define the transformation pipeline
         if factory is not None:
@@ -130,19 +130,21 @@ class FactoryLoader:
         loaded_images = int(total_images * (percentage / 100.0))
         indices = np.arange(total_images)
 
-        if shuffle: # Randomize the reading in of indices
+        if shuffle:  # Randomize the reading in of indices
             np.random.shuffle(indices)
 
         subset_indices = indices[:loaded_images]
 
-        self.__dataset = Subset(dataset, subset_indices) # Convert dataset to subset
+        self.__dataset = Subset(dataset, subset_indices)  # Convert dataset to subset
 
         self.__instance = None
 
     def get_loader(self, shuffle=False) -> DataLoader:
         # Create DataLoader
         if self.__instance is None:
-            self.__instance = DataLoader(dataset=self.__dataset, batch_size=self.batch_size, shuffle=shuffle)
+            self.__instance = DataLoader(dataset=self.__dataset,
+                                         batch_size=self.batch_size,
+                                         shuffle=shuffle)
         return self.__instance
 
     def get_num_classes(self) -> int:
@@ -156,7 +158,7 @@ class FactoryLoader:
 
     def get_transformation_steps(self):
         return self.__factory.get_steps()
-    
+
     def __len__(self):
         return len(self.__dataset)
 
@@ -189,7 +191,9 @@ class FactoryLoader:
 
         selected_indices = indices[:num_images]
 
-        fig, axs = plt.subplots(num_rows, num_columns, figsize=(15, 5 * num_rows))
+        fig, axs = plt.subplots(num_rows,
+                                num_columns,
+                                figsize=(15, 5 * num_rows))
         axs = axs.flatten()
 
         for i, idx in enumerate(selected_indices):
@@ -205,3 +209,15 @@ class FactoryLoader:
 
         plt.tight_layout()
         plt.show()
+
+    def get_element_by_id(self, idx: int):
+        if idx < 0 or idx >= len(self.__dataset):
+            raise IndexError(f"ID {idx} is out of bounds "
+                             f"for dataset with size {len(self.__dataset)}")
+
+        # Get image and label at the specific index
+        image, label = self.__dataset[idx]
+
+        # Change shape to rgb (C,H,W) -> (H,W,C)
+        image = np.dstack([image[0], image[1], image[2]])
+        return image, label
