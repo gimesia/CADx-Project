@@ -115,6 +115,9 @@ class PreprocessingFactory:
     def normalize2float(self):
         self.steps.append(FloatNormalize())
 
+    def add_preprocessing_step(self, step: PreprocessingStep):
+        self.steps.append(step)
+
     def apply_preprocessing(self, image: np.ndarray) -> np.ndarray:
         for step in self.steps:
             image = step.apply(image)
