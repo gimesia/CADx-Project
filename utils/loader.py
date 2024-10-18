@@ -105,7 +105,8 @@ class Loader:
 
 
 class FactoryLoader:
-    def __init__(self, path: str, batch_size=32, factory: PreprocessingFactory = None, percentage = 100):
+    def __init__(self, path: str, batch_size=32,
+                 factory: PreprocessingFactory=None, percentage=100, shuffle=False):
 
         # Define the transformation pipeline
         if factory is not None:
@@ -122,20 +123,19 @@ class FactoryLoader:
         # Load the dataset using the transformation pipeline
         self.batch_size = batch_size
         self.__factory = factory
-        self.__dataset = datasets.ImageFolder(path, transform=transform)
-        
-        #percentage based filtering
-        total_images = len(self.__dataset)
-        num_imgs_load = int(total_images * (percentage / 100.0))
+        dataset = datasets.ImageFolder(path, transform=transform)
 
+        # Percentage based reduction
+        total_images = dataset.__len__()
+        loaded_images = int(total_images * (percentage / 100.0))
+        indices = np.arange(total_images)
 
-        #Select randomly
-        indices = list(range(total_images))
-        random.shuffle(indices)
-        subset_indices = indices[:num_imgs_load]
+        if shuffle: # Randomize the reading in of indices
+            np.random.shuffle(indices)
 
-        #Create subset
-        self.__dataset = Subset(self.__dataset, subset_indices)
+        subset_indices = indices[:loaded_images]
+
+        self.__dataset = Subset(dataset, subset_indices) # Convert dataset to subset
 
         self.__instance = None
 
@@ -146,10 +146,13 @@ class FactoryLoader:
         return self.__instance
 
     def get_num_classes(self) -> int:
-        return len(self.__dataset.classes)
+        return len(self.__dataset.dataset.classes)
 
     def get_classes(self) -> list:
-        return self.__dataset.classes
+        return self.__dataset.dataset.classes
+
+    def get_size(self) -> list:
+        return self.__dataset.__len__()
 
     def get_transformation_steps(self):
         return self.__factory.get_steps()
@@ -180,9 +183,9 @@ class FactoryLoader:
         all_images = np.concatenate(images_list, axis=0)
         all_labels = torch.cat(labels_list, dim=0)
 
-        indices = list(range(len(all_images)))
+        indices = np.arange(all_images.size)
         if randomize:
-            random.shuffle(indices)
+            np.random.shuffle(indices)
 
         selected_indices = indices[:num_images]
 
