@@ -143,6 +143,45 @@ class HairRemoval(PreprocessingStep):
                 "length": self.length}
 
 
+class OtsuSegmentation(PreprocessingStep):
+    def __init__(self, morph_op=cv2.MORPH_DILATE, kernel_size=5, remove_border=True):
+        self.morph_op = morph_op
+        self.kernel_size = kernel_size
+        self.remove_border = remove_border
+
+    def apply(self, image: np.ndarray) -> np.ndarray:
+        # Convert to gray
+        gray = (skimage.color.rgb2gray(image) * 255).astype(np.uint8)
+
+        # Apply otsu-thresholding
+        _, otsu_threshold = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+        otsu_threshold = otsu_threshold.astype(bool)
+
+        # Bin. morphological operation for conservation
+        se = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (self.kernel_size, self.kernel_size))
+        otsu_threshold = cv2.morphologyEx(otsu_threshold.astype(float), self.morph_op, se)
+        otsu_threshold = otsu_threshold.astype(bool)
+
+        # Clear border in case of black rim
+        if self.remove_border:
+            otsu_threshold = skimage.segmentation.clear_border(otsu_threshold)
+
+        # Apply mask on each channel
+        masked = np.dstack([
+            (image[:, :, 0] * otsu_threshold).astype(np.uint8),
+            (image[:, :, 1] * otsu_threshold).astype(np.uint8),
+            (image[:, :, 2] * otsu_threshold).astype(np.uint8)])
+
+        return masked
+
+    def get_step_params(self):
+        return {"name": "otsu",
+                "correction_type": str(self.morph_op),
+                "kernel_size": self.kernel_size,
+                "remove_border": self.remove_border}
+
+
+
 # Factory class to add and manage preprocessing steps
 class PreprocessingFactory:
     def __init__(self):
