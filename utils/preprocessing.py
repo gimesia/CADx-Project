@@ -4,6 +4,8 @@ import cv2
 import skimage
 from skimage.color import rgb2gray
 
+from utils.utils import norm
+
 
 # Define the base class for preprocessing steps
 class PreprocessingStep:
@@ -105,17 +107,13 @@ def create_tilted_structuring_elements(width, height, n):
 
 
 class HairRemoval(PreprocessingStep):
-    """
-    NOTE: expects float [0,1] image as input
-    """
     def __init__(self, kernel_size=3, directions=8, length=25):
         self.kernel_size = kernel_size
         self.directions = directions
         self.length = length
 
     def apply(self, image: np.ndarray) -> np.ndarray:
-        img = image.astype(np.uint8)
-        img_gray = (rgb2gray(img) * 255).astype(np.uint8)
+        img_gray = norm(rgb2gray(image), np.uint16)
 
         SEs = create_tilted_structuring_elements(self.length, 1, self.directions)
         sum_blackhats = np.zeros(img_gray.shape, np.uint16)
@@ -124,7 +122,7 @@ class HairRemoval(PreprocessingStep):
             blackhat = cv2.morphologyEx(img_gray, cv2.MORPH_BLACKHAT, SE)
             sum_blackhats = cv2.add(sum_blackhats, blackhat.astype(np.uint16))
 
-        sum_blackhats = cv2.normalize(sum_blackhats, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+        sum_blackhats = norm(sum_blackhats, np.uint8)
 
         _, thresholded = cv2.threshold(sum_blackhats, 0, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)
 
@@ -132,7 +130,9 @@ class HairRemoval(PreprocessingStep):
             thresholded,
             cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (self.kernel_size, self.kernel_size))
         )
-        result = cv2.inpaint(img, thresholded, 5, cv2.INPAINT_TELEA)
+
+        image = norm(image, np.uint8)
+        result = cv2.inpaint(image, thresholded, self.kernel_size, cv2.INPAINT_TELEA)
 
         return result
 
@@ -141,7 +141,6 @@ class HairRemoval(PreprocessingStep):
                 "kernel_size": self.kernel_size,
                 "directions": self.directions,
                 "length": self.length}
-
 
 class OtsuSegmentation(PreprocessingStep):
     def __init__(self, morph_op=cv2.MORPH_DILATE, kernel_size=5, remove_border=True):
