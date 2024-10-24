@@ -35,6 +35,31 @@ class Pad2Square(PreprocessingStep):
     def get_step_params(self):
         return {"name": "pad2square", "fill": self.fill}
 
+class CLAHE(PreprocessingStep):
+    def __init__(self, clip_limit = 2.0, tile_grid_size = (8,8)):
+
+        self.clip_limit = clip_limit
+        self.tile_grid_size = tile_grid_size
+
+    def apply(self, image: np.ndarray) -> np.ndarray:
+
+        lab = cv2.cvtColor(image, cv2.COLOR_RGB2LAB)
+
+        l_channel, a, b = cv2.split(lab)
+
+        clahe = cv2.createCLAHE(clipLimit= self.clip_limit, tileGridSize=self.tile_grid_size)
+
+        cl = clahe.apply(l_channel)
+
+        lab_clahe = cv2.merge((cl, a, b))
+
+        image_clahe = cv2.cvtColor(lab_clahe, cv2.COLOR_LAB2RGB)
+
+        return image_clahe
+    
+    def get_step_params(self):
+        return {"name": "clahe", "clip_limit": self.clip_limit, "tile_grid_size": self.tile_grid_size}
+
 
 class Smoothing(PreprocessingStep):
     def __init__(self, kernel_size=5):
@@ -81,6 +106,53 @@ class StdNormalize(PreprocessingStep):
     def get_step_params(self):
         return {"name": "std_norm", "mean": self.mean, "std": self.std}
 
+class CropROI(PreprocessingStep):
+    def __init__(self, black_threshold_ratio=0.1):
+        self.black_threshold_ratio = black_threshold_ratio  # Threshold for black pixel ratio
+
+    def apply(self, image: np.ndarray) -> np.ndarray:
+        """
+        Crops the region of interest (ROI) by removing large black areas around the image,
+        but only if the black pixel ratio exceeds the threshold.
+        """
+        # Convert image to grayscale for thresholding
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+
+        # Check for black pixel regions (assume black pixels have value close to 0)
+        black_pixels = np.sum(gray == 0)
+        total_pixels = gray.size
+        black_pixel_ratio = black_pixels / total_pixels
+
+        # Check if black pixels exceed the threshold
+        if black_pixel_ratio > self.black_threshold_ratio:
+            #print(f"Black pixel ratio {black_pixel_ratio:.2f} exceeds threshold. Applying cropping.")
+
+            # Apply a binary threshold to find regions that are not black
+            _, binary_mask = cv2.threshold(gray, 10, 255, cv2.THRESH_BINARY)
+
+            # Find contours on the binary mask
+            contours, _ = cv2.findContours(binary_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+            if contours:
+                # Find the largest contour (assumed to be the region of interest)
+                largest_contour = max(contours, key=cv2.contourArea)
+
+                # Get the bounding box for the largest contour
+                x, y, w, h = cv2.boundingRect(largest_contour)
+
+                # Crop the image to this bounding box
+                cropped_image = image[y:y+h, x:x+w]
+                return cropped_image
+            else:
+                #print("No significant region of interest found. Returning the original image.")
+                return image
+        else:
+            #print(f"Black pixel ratio {black_pixel_ratio:.2f} is below threshold. No cropping applied.")
+            return image
+
+    def get_step_params(self):
+        return {"name": "crop_roi", "black_threshold_ratio": self.black_threshold_ratio}
+    
 class FloatNormalize(PreprocessingStep):
     def __init__(self, ):
         pass
@@ -97,7 +169,11 @@ class PreprocessingFactory:
     def __init__(self):
         self.steps = []
 
-    def pad2square(self, fill=0):
+    def crop_roi(self):
+        """Add the cropping step to the pipeline."""
+        self.steps.append(CropROI())
+
+    def pad2square(self, fill=np.nan):
         self.steps.append(Pad2Square(fill))
 
     def gaussian_smoothing(self, kernel_size=5):
@@ -115,8 +191,15 @@ class PreprocessingFactory:
     def normalize2float(self):
         self.steps.append(FloatNormalize())
 
+    def clahe(self, clip_limit = 2.0, tile_grid_size=(8,8)):
+        self.steps.append(CLAHE(clip_limit=clip_limit, tile_grid_size=tile_grid_size))
+
     def add_preprocessing_step(self, step: PreprocessingStep):
         self.steps.append(step)
+
+   
+
+        
 
     def apply_preprocessing(self, image: np.ndarray) -> np.ndarray:
         for step in self.steps:
