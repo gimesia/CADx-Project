@@ -1,6 +1,10 @@
 import numpy as np
 import torch
 import cv2
+import skimage
+from skimage.color import rgb2gray
+
+from utils.utils import norm
 
 
 # Define the base class for preprocessing steps
@@ -47,17 +51,6 @@ class Smoothing(PreprocessingStep):
         return {"name": "smoothing", "kernel_size": self.kernel_size}
 
 
-class HairRemoval(PreprocessingStep):
-    def apply(self, image: np.ndarray) -> np.ndarray:
-        gray_image = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
-        _, binary_mask = cv2.threshold(gray_image, 10, 255, cv2.THRESH_BINARY_INV)
-        inpainted_image = cv2.inpaint(image, binary_mask, 3, cv2.INPAINT_TELEA)
-        return inpainted_image
-
-    def get_step_params(self):
-        return {"name": "hair_removal"}
-
-
 class Resize(PreprocessingStep):
     def __init__(self, target_size=(224, 224)):
         self.target_size = target_size
@@ -67,6 +60,7 @@ class Resize(PreprocessingStep):
 
     def get_step_params(self):
         return {"name": "resize", "size": self.target_size}
+
 
 class StdNormalize(PreprocessingStep):
     def __init__(self, mean, std):
@@ -81,6 +75,7 @@ class StdNormalize(PreprocessingStep):
     def get_step_params(self):
         return {"name": "std_norm", "mean": self.mean, "std": self.std}
 
+
 class FloatNormalize(PreprocessingStep):
     def __init__(self, ):
         pass
@@ -91,6 +86,100 @@ class FloatNormalize(PreprocessingStep):
 
     def get_step_params(self):
         return {"name": "01_norm"}
+
+
+def create_tilted_structuring_elements(width, height, n):
+    if width % 2 == 0 or height % 2 == 0:
+        raise ValueError("Structuring element dimensions must be odd.")
+
+    base = np.zeros((width, width), dtype=np.uint8)
+    for k in range(width // 2 - height // 2, width // 2 + height // 2 + 1):
+        base = cv2.line(base, (0, k), (width, k), 255)
+
+    SEs = [base]
+    angle_step = 180.0 / n
+    for k in range(1, n):
+        M = cv2.getRotationMatrix2D((base.shape[1] / 2.0, base.shape[0] / 2.0), k * angle_step, 1.0)
+        SE = cv2.warpAffine(base, M, (width, width), flags=cv2.INTER_NEAREST)
+        SEs.append(SE)
+
+    return SEs
+
+
+class HairRemoval(PreprocessingStep):
+    def __init__(self, kernel_size=3, directions=8, length=25):
+        self.kernel_size = kernel_size
+        self.directions = directions
+        self.length = length
+
+    def apply(self, image: np.ndarray) -> np.ndarray:
+        img_gray = norm(rgb2gray(image), np.uint16)
+
+        SEs = create_tilted_structuring_elements(self.length, 1, self.directions)
+        sum_blackhats = np.zeros(img_gray.shape, np.uint16)
+
+        for i, SE in enumerate(SEs):
+            blackhat = cv2.morphologyEx(img_gray, cv2.MORPH_BLACKHAT, SE)
+            sum_blackhats = cv2.add(sum_blackhats, blackhat.astype(np.uint16))
+
+        sum_blackhats = norm(sum_blackhats, np.uint8)
+
+        _, thresholded = cv2.threshold(sum_blackhats, 0, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)
+
+        thresholded = cv2.dilate(
+            thresholded,
+            cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (self.kernel_size, self.kernel_size))
+        )
+
+        image = norm(image, np.uint8)
+        result = cv2.inpaint(image, thresholded, self.kernel_size, cv2.INPAINT_TELEA)
+
+        return result
+
+    def get_step_params(self):
+        return {"name": "hair_removal",
+                "kernel_size": self.kernel_size,
+                "directions": self.directions,
+                "length": self.length}
+
+class OtsuSegmentation(PreprocessingStep):
+    def __init__(self, morph_op=cv2.MORPH_DILATE, kernel_size=5, remove_border=True):
+        self.morph_op = morph_op
+        self.kernel_size = kernel_size
+        self.remove_border = remove_border
+
+    def apply(self, image: np.ndarray) -> np.ndarray:
+        # Convert to gray
+        gray = (skimage.color.rgb2gray(image) * 255).astype(np.uint8)
+
+        # Apply otsu-thresholding
+        _, otsu_threshold = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+        otsu_threshold = otsu_threshold.astype(bool)
+
+        # Bin. morphological operation for conservation
+        se = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (self.kernel_size, self.kernel_size))
+        otsu_threshold = cv2.morphologyEx(otsu_threshold.astype(float), self.morph_op, se)
+        otsu_threshold = otsu_threshold.astype(bool)
+
+        # Clear border in case of black rim
+        if self.remove_border:
+            otsu_threshold = skimage.segmentation.clear_border(otsu_threshold)
+
+        # Apply mask on each channel
+        masked = np.dstack([
+            (image[:, :, 0] * otsu_threshold).astype(np.uint8),
+            (image[:, :, 1] * otsu_threshold).astype(np.uint8),
+            (image[:, :, 2] * otsu_threshold).astype(np.uint8)])
+
+        return masked
+
+    def get_step_params(self):
+        return {"name": "otsu",
+                "correction_type": str(self.morph_op),
+                "kernel_size": self.kernel_size,
+                "remove_border": self.remove_border}
+
+
 
 # Factory class to add and manage preprocessing steps
 class PreprocessingFactory:

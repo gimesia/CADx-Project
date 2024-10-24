@@ -104,6 +104,9 @@ class Loader:
         plt.show()
 
 
+from torch.utils.data import DataLoader, Subset
+
+
 class FactoryLoader:
     def __init__(self, path: str, batch_size=32,
                  factory: PreprocessingFactory = None, percentage=100, shuffle=False):
@@ -142,9 +145,7 @@ class FactoryLoader:
     def get_loader(self, shuffle=False) -> DataLoader:
         # Create DataLoader
         if self.__instance is None:
-            self.__instance = DataLoader(dataset=self.__dataset,
-                                         batch_size=self.batch_size,
-                                         shuffle=shuffle)
+            self.__instance = DataLoader(dataset=self.__dataset, batch_size=self.batch_size, shuffle=shuffle)
         return self.__instance
 
     def get_num_classes(self) -> int:
@@ -159,8 +160,14 @@ class FactoryLoader:
     def get_transformation_steps(self):
         return self.__factory.get_steps()
 
+    def get_factory(self):
+        return self.__factory
+
     def __len__(self):
         return len(self.__dataset)
+
+    def change_factory(self, factory: PreprocessingFactory):
+        self.__factory = factory
 
     def show_images(self, num_images=8, randomize=False):
         # Determine number of rows and columns for the grid
@@ -191,9 +198,7 @@ class FactoryLoader:
 
         selected_indices = indices[:num_images]
 
-        fig, axs = plt.subplots(num_rows,
-                                num_columns,
-                                figsize=(15, 5 * num_rows))
+        fig, axs = plt.subplots(num_rows, num_columns, figsize=(15, 5 * num_rows))
         axs = axs.flatten()
 
         for i, idx in enumerate(selected_indices):
@@ -212,12 +217,9 @@ class FactoryLoader:
 
     def get_element_by_id(self, idx: int):
         if idx < 0 or idx >= len(self.__dataset):
-            raise IndexError(f"ID {idx} is out of bounds "
-                             f"for dataset with size {len(self.__dataset)}")
+            raise IndexError(f"ID {idx} is out of bounds for dataset with size {len(self.__dataset)}")
 
         # Get image and label at the specific index
         image, label = self.__dataset[idx]
-
-        # Change shape to rgb (C,H,W) -> (H,W,C)
         image = np.dstack([image[0], image[1], image[2]])
         return image, label
