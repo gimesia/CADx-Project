@@ -1,17 +1,34 @@
 import random
-
 import numpy as np
 import torch
 from matplotlib import pyplot as plt
 from torch.utils.data import DataLoader
 from torchvision import datasets, transforms
 from torch.utils.data import Subset
-
 from utils.preprocessing import PreprocessingFactory, PreprocessMelanoma
+
+#To create a balanced subset
+def balanced_subset(dataset, percentage=100):
+    # Get the class indices
+    class_indices = {cls_idx: np.where(np.array(dataset.targets) == cls_idx)[0]
+                     for cls_idx in range(len(dataset.classes))}
+
+    # Calculate number of images to load based on percentage
+    total_images = int(len(dataset) * (percentage / 100.0))
+    per_class_images = total_images // len(dataset.classes)
+
+    # Sample equal number of images per class
+    subset_indices = []
+    for cls_idx, indices in class_indices.items():
+        subset_indices.extend(np.random.choice(indices, per_class_images, replace=False))
+
+    # Shuffle the combined indices
+    random.shuffle(subset_indices)
+    return subset_indices
 
 
 class Loader:
-    def __init__(self, path: str, batch_size=32, transform=None, percentage = 100):
+    def __init__(self, path: str, batch_size=32, transform=None, percentage=100):
 
         # Default transformations (if none provided)
         if transform is None:
@@ -22,19 +39,15 @@ class Loader:
         # Load the dataset using the transformation pipeline
         self.dataset = datasets.ImageFolder(path, transform=transform)
         self.batch_size = batch_size
-        
 
-        total_images = len(self.dataset)
-        num_imgs_load = int(total_images * (percentage / 100.0))
+        # Get a balanced subset of the dataset
+        subset_indices = balanced_subset(self.dataset, percentage=percentage)
 
-        indices = list(range(total_images))
-        random.shuffle(indices)
-        subset_indices = indices[:num_imgs_load]
-
+        # Create the Subset with balanced data
         self.dataset = Subset(self.dataset, subset_indices)
         self.__instance = None
 
-    def get_loader(self, shuffle=False) -> DataLoader:
+    def get_loader(self, shuffle=True) -> DataLoader:
         # Create DataLoader
         if self.__instance is None:
             self.__instance = DataLoader(dataset=self.dataset, batch_size=self.batch_size, shuffle=shuffle)
@@ -104,9 +117,6 @@ class Loader:
         plt.show()
 
 
-from torch.utils.data import DataLoader, Subset
-
-
 class FactoryLoader:
     def __init__(self, path: str, batch_size=32,
                  factory: PreprocessingFactory = None, percentage=100, shuffle=False):
@@ -128,24 +138,20 @@ class FactoryLoader:
         self.__factory = factory
         dataset = datasets.ImageFolder(path, transform=transform)
 
-        # Percentage based reduction
-        total_images = dataset.__len__()
-        loaded_images = int(total_images * (percentage / 100.0))
-        indices = np.arange(total_images)
+        # Get a balanced subset of the dataset
+        subset_indices = balanced_subset(dataset, percentage=percentage)
 
-        if shuffle:  # Randomize the reading in of indices
-            np.random.shuffle(indices)
-
-        subset_indices = indices[:loaded_images]
-
-        self.__dataset = Subset(dataset, subset_indices)  # Convert dataset to subset
+        # Create the Subset with balanced data
+        self.__dataset = Subset(dataset, subset_indices)
 
         self.__instance = None
 
-    def get_loader(self, shuffle=False) -> DataLoader:
+    def get_loader(self, shuffle=True) -> DataLoader:
         # Create DataLoader
         if self.__instance is None:
-            self.__instance = DataLoader(dataset=self.__dataset, batch_size=self.batch_size, shuffle=shuffle)
+            self.__instance = DataLoader(dataset=self.__dataset,
+                                         batch_size=self.batch_size,
+                                         shuffle=shuffle)
         return self.__instance
 
     def get_num_classes(self) -> int:
@@ -160,14 +166,8 @@ class FactoryLoader:
     def get_transformation_steps(self):
         return self.__factory.get_steps()
 
-    def get_factory(self):
-        return self.__factory
-
     def __len__(self):
         return len(self.__dataset)
-
-    def change_factory(self, factory: PreprocessingFactory):
-        self.__factory = factory
 
     def show_images(self, num_images=8, randomize=False):
         # Determine number of rows and columns for the grid
@@ -198,7 +198,9 @@ class FactoryLoader:
 
         selected_indices = indices[:num_images]
 
-        fig, axs = plt.subplots(num_rows, num_columns, figsize=(15, 5 * num_rows))
+        fig, axs = plt.subplots(num_rows,
+                                num_columns,
+                                figsize=(15, 5 * num_rows))
         axs = axs.flatten()
 
         for i, idx in enumerate(selected_indices):
@@ -217,9 +219,12 @@ class FactoryLoader:
 
     def get_element_by_id(self, idx: int):
         if idx < 0 or idx >= len(self.__dataset):
-            raise IndexError(f"ID {idx} is out of bounds for dataset with size {len(self.__dataset)}")
+            raise IndexError(f"ID {idx} is out of bounds "
+                             f"for dataset with size {len(self.__dataset)}")
 
         # Get image and label at the specific index
         image, label = self.__dataset[idx]
+
+        # Change shape to rgb (C,H,W) -> (H,W,C)
         image = np.dstack([image[0], image[1], image[2]])
         return image, label
