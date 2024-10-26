@@ -7,114 +7,29 @@ from torchvision import datasets, transforms
 from torch.utils.data import Subset
 from utils.preprocessing import PreprocessingFactory, PreprocessMelanoma
 
-#To create a balanced subset
+
+# To create a balanced subset
 def balanced_subset(dataset, percentage=100):
+    # If percentage is 100, use all dataset indices
+    if percentage == 100:
+        return list(range(len(dataset)))
+
     # Get the class indices
     class_indices = {cls_idx: np.where(np.array(dataset.targets) == cls_idx)[0]
                      for cls_idx in range(len(dataset.classes))}
 
     # Calculate number of images to load based on percentage
     total_images = int(len(dataset) * (percentage / 100.0))
-    per_class_images = total_images // len(dataset.classes)
+    per_class_images = max(1, total_images // len(dataset.classes))
 
     # Sample equal number of images per class
     subset_indices = []
     for cls_idx, indices in class_indices.items():
-        subset_indices.extend(np.random.choice(indices, per_class_images, replace=False))
+        subset_indices.extend(np.random.choice(indices, min(per_class_images, len(indices)), replace=False))
 
     # Shuffle the combined indices
     random.shuffle(subset_indices)
     return subset_indices
-
-
-class Loader:
-    def __init__(self, path: str, batch_size=32, transform=None, percentage=100):
-
-        # Default transformations (if none provided)
-        if transform is None:
-            transform = transforms.Compose([
-                transforms.ToTensor(),  # Convert image to PyTorch tensor
-            ])
-
-        # Load the dataset using the transformation pipeline
-        self.dataset = datasets.ImageFolder(path, transform=transform)
-        self.batch_size = batch_size
-
-        # Get a balanced subset of the dataset
-        subset_indices = balanced_subset(self.dataset, percentage=percentage)
-
-        # Create the Subset with balanced data
-        self.dataset = Subset(self.dataset, subset_indices)
-        self.__instance = None
-
-    def get_loader(self, shuffle=True) -> DataLoader:
-        # Create DataLoader
-        if self.__instance is None:
-            self.__instance = DataLoader(dataset=self.dataset, batch_size=self.batch_size, shuffle=shuffle)
-        return self.__instance
-
-    def get_num_classes(self) -> int:
-        # Return number of classes (should be 2 for binary classification, n for multiclass)
-        return len(self.dataset.dataset.classes)
-    
-    def __len__(self):
-        return len(self.dataset)
-
-    def show_images(self, num_images=8, randomize=False):
-        # Determine number of rows based on number of images and fixed 4 columns
-        num_columns = 4
-        num_rows = (num_images + num_columns - 1) // num_columns  # Ceiling division for grid rows
-
-        loader = self.get_loader()  # Get the DataLoader
-
-        images_list = []
-        labels_list = []
-
-        # Continue loading batches until we have enough images
-        for batch in loader:
-            images, labels = batch
-
-            # Convert to numpy for plotting (assuming CHW format)
-            if torch.is_tensor(images):
-                images = images.permute(0, 2, 3, 1).numpy()  # Change to (batch_size, height, width, channels) if needed
-
-            images_list.append(images)
-            labels_list.append(labels)
-
-            # If we have enough images, break the loop
-            if sum(len(imgs) for imgs in images_list) >= num_images:
-                break
-
-        # Concatenate all loaded images and labels
-        all_images = np.concatenate(images_list, axis=0)
-        all_labels = torch.cat(labels_list, dim=0) if torch.is_tensor(labels_list[0]) else np.concatenate(labels_list)
-
-        # Select a subset of images, random or not
-        indices = list(range(len(all_images)))
-        if randomize:
-            random.shuffle(indices)
-
-        selected_indices = indices[:num_images]
-
-        # Create the plot
-        fig, axs = plt.subplots(num_rows, num_columns, figsize=(15, 5 * num_rows))
-        axs = axs.flatten()  # Flatten to easily iterate over all subplots
-
-        for i, idx in enumerate(selected_indices):
-            image = all_images[idx]
-            label = all_labels[idx].item() if torch.is_tensor(all_labels[idx]) else all_labels[idx]
-
-            # Plot the image
-            axs[i].imshow(np.squeeze(image))  # Squeeze for grayscale images
-            axs[i].set_title(f"idx: {idx}; label: {label}")
-            axs[i].axis('off')  # Hide axis
-
-        # Hide any unused subplots
-        for i in range(num_images, len(axs)):
-            axs[i].axis('off')
-
-        plt.tight_layout()
-        plt.show()
 
 
 class FactoryLoader:
@@ -192,7 +107,7 @@ class FactoryLoader:
         all_images = np.concatenate(images_list, axis=0)
         all_labels = torch.cat(labels_list, dim=0)
 
-        indices = np.arange(all_images.size)
+        indices = np.arange(all_images.shape[0])
         if randomize:
             np.random.shuffle(indices)
 
@@ -228,3 +143,9 @@ class FactoryLoader:
         # Change shape to rgb (C,H,W) -> (H,W,C)
         image = np.dstack([image[0], image[1], image[2]])
         return image, label
+
+    def get_factory(self):
+        return self.__factory
+
+    def change_factory(self, factory: PreprocessingFactory):
+        self.__factory = factory

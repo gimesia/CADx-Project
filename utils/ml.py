@@ -1,4 +1,4 @@
-from torch import cat
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
 import logging
 import pandas as pd
 from sklearn.base import ClassifierMixin
@@ -25,6 +25,7 @@ class MLPipeline:
         self.labels = None
         self.is_extracted = False
         self.fitted_classifiers = {}
+        self.predictions = {}
         self.verbose = verbose  # Control logging verbosity
 
         if self.verbose:
@@ -37,16 +38,7 @@ class MLPipeline:
             logger.info("Running feature extraction...")
 
         loader_data = self.loader.get_loader()  # This returns the dataset loader
-        self.feature_matrix = self.feature_strategy.run(loader_data)
-        # Extract labels from batches of tensors and convert them into a flat array
-        labels_list = []
-        for batch in loader_data:
-            _, labels_batch = batch  # Assuming each batch is (features, labels)
-            labels_list.append(labels_batch)
-
-        # If using PyTorch, convert the list of tensors to a single tensor and then to a NumPy array
-        self.labels = cat(labels_list).numpy()
-
+        self.feature_matrix, self.labels = self.feature_strategy.run(loader_data)
         self.is_extracted = True
 
         if self.verbose:
@@ -64,7 +56,6 @@ class MLPipeline:
 
         self.fitted_classifiers = {}
         for clf in self.classifiers:
-            print(self.labels)
             clf.fit(self.feature_matrix, self.labels)
             self.fitted_classifiers[clf.__class__.__name__] = clf
             if self.verbose:
@@ -75,7 +66,7 @@ class MLPipeline:
 
     def predict_with_classifiers(self, new_dataset_path, percentage=100):
         """
-        Predicts the output for a new dataset using all fitted classifiers.
+        Predicts the output for a new dataset using all fitted classifiers and stores the results.
 
         Args:
         new_dataset_path: The path to the new dataset for prediction.
@@ -91,16 +82,53 @@ class MLPipeline:
 
         # Load and extract features from the new dataset
         new_loader = FactoryLoader(path=new_dataset_path, factory=self.loader.get_factory(), percentage=percentage)
-        new_feature_matrix = self.feature_strategy.run(new_loader.get_loader())
+        new_feature_matrix, new_labels = self.feature_strategy.run(new_loader.get_loader())
 
-        # Store predictions in a dictionary
-        predictions = {}
+        # Store predictions in the class attribute
+        self.predictions = {"GT": new_labels, }
         for clf_name, clf in self.fitted_classifiers.items():
-            predictions[clf_name] = clf.predict(new_feature_matrix)
+
+            self.predictions[clf_name] = clf.predict(new_feature_matrix)
             if self.verbose:
                 logger.info("Predictions made with classifier: %s", clf_name)
 
-        return predictions
+        return self.predictions
+
+    def calculate_metrics(self, metrics=['accuracy', 'precision', 'recall', 'f1']):
+        """
+        Calculates specified metrics for each classifier's stored predictions.
+
+        Args:
+        true_labels (array-like): Array of true labels for comparison.
+        metrics (list of str): List of metrics to calculate; options are 'accuracy', 'precision', 'recall', 'f1'.
+
+        Returns:
+        dict: A dictionary with classifier names as keys and calculated metrics as values.
+
+        Raises:
+        RuntimeError: If predictions are not available.
+        """
+        if not self.predictions:
+            raise RuntimeError("No predictions available. Run 'predict_with_classifiers' first.")
+
+        results = {}
+        for clf_name, clf_predictions in self.predictions.items():
+            clf_metrics = {}
+            if 'accuracy' in metrics:
+                clf_metrics['accuracy'] = accuracy_score(self.predictions["GT"], clf_predictions)
+            if 'precision' in metrics:
+                clf_metrics['precision'] = precision_score(self.predictions["GT"], clf_predictions, average='weighted')
+            if 'recall' in metrics:
+                clf_metrics['recall'] = recall_score(self.predictions["GT"], clf_predictions, average='weighted')
+            if 'f1' in metrics:
+                clf_metrics['f1'] = f1_score(self.predictions["GT"], clf_predictions, average='weighted')
+
+            results[clf_name] = clf_metrics
+
+            if self.verbose:
+                logger.info("Metrics for classifier %s: %s", clf_name, clf_metrics)
+
+        return results
 
     def get_feature_names(self):
         """Returns feature names extracted by the strategy."""
@@ -145,10 +173,3 @@ class MLPipeline:
             logger.info("Feature matrix saved to %s", file_path)
 
         return file_path
-
-# Example usage:
-# pipeline = MLPipeline(dataset_path="data/", preprocessing_factory=some_factory, feature_strategy=strategy, classifiers=[clf1, clf2], verbose=True)
-# pipeline.run_feature_extraction()
-# pipeline.fit_classifiers()
-# predictions = pipeline.predict_with_classifiers(new_dataset_path="new_data/")
-# pipeline.save_feature_matrix_to_excel(output_dir="./output/")
