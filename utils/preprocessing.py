@@ -197,10 +197,6 @@ class PreprocessingFactory:
     def add_preprocessing_step(self, step: PreprocessingStep):
         self.steps.append(step)
 
-   
-
-        
-
     def apply_preprocessing(self, image: np.ndarray) -> np.ndarray:
         for step in self.steps:
             image = step.apply(image)
