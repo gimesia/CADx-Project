@@ -1,6 +1,7 @@
 import numpy as np
 from torch.utils.data import DataLoader
 from skimage.feature import local_binary_pattern, hog
+from skimage.feature import graycomatrix, graycoprops
 import cv2
 
 # Base FeatureExtractor class (Strategy Pattern)
@@ -171,6 +172,45 @@ class GaborExtractor(FeatureExtractor):
 
     def get_feature_name(self) -> list:
         return [f"{self.name}_filter_{i}" for i in range(self.num_orientations * self.num_scales)]
+    
+class GLCMExtractor(FeatureExtractor):
+    def __init__(self, distances=[1], angles=[0], properties=['contrast', 'dissimilarity', 'homogeneity', 'energy', 'correlation', 'ASM'], threshold=0.1):
+        super().__init__(name="glcm", threshold=threshold)
+        self.distances = distances
+        self.angles = angles
+        self.properties = properties
+
+    def extract(self, image: np.ndarray) -> np.ndarray:
+        # Convert to grayscale if image has multiple channels
+        if image.ndim == 3 and image.shape[0] == 3:
+            image = np.transpose(image, (1, 2, 0))  # Convert to HWC format
+        if image.ndim == 3 and image.shape[-1] == 3:
+            image = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
+
+        # Apply threshold mask
+        masked_image = self.apply_threshold_mask(image)
+        
+        # Compute GLCM matrix and texture features
+        glcm = graycomatrix(masked_image.astype(np.uint8), 
+                            distances=self.distances, 
+                            angles=self.angles, 
+                            symmetric=True, 
+                            normed=True)
+
+        # Extract specified properties
+        feature_values = []
+        for prop in self.properties:
+            feature_values.extend(graycoprops(glcm, prop).flatten())
+        
+        return np.array(feature_values)
+
+    def get_feature_name(self) -> list:
+        feature_names = []
+        for prop in self.properties:
+            for dist in self.distances:
+                for angle in self.angles:
+                    feature_names.append(f"{self.name}_{prop}_dist_{dist}_angle_{angle}")
+        return feature_names
 
 # Feature extraction pipeline
 class FeatureExtractionStrategy:
@@ -183,7 +223,7 @@ class FeatureExtractionStrategy:
 
     def extract_features(self, image: np.ndarray) -> np.ndarray:
         # Apply all the extractors and concatenate their results
-        print(image.shape)
+        #print(image.shape)
         features = [extractor.extract(image) for extractor in self.extractors]
         return np.concatenate(features)
 
@@ -203,7 +243,7 @@ class FeatureExtractionStrategy:
                 #print("Batch contents: ", batch)
                 
                 images, labels = batch
-                print(labels)
+                #print(labels)
                 # Iterate through images in the batch
                 for image, label in zip(images, labels):
                     image_np = image.numpy()  # Convert tensor to NumPy
