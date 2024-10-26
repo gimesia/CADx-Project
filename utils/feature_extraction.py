@@ -1,4 +1,5 @@
 import numpy as np
+from skimage.color import rgb2gray
 from torch.utils.data import DataLoader
 from skimage.feature import local_binary_pattern, hog
 from skimage.feature import graycomatrix, graycoprops
@@ -211,6 +212,39 @@ class GLCMExtractor(FeatureExtractor):
                 for angle in self.angles:
                     feature_names.append(f"{self.name}_{prop}_dist_{dist}_angle_{angle}")
         return feature_names
+
+
+class GradientExtractor(FeatureExtractor):
+    def __init__(self, threshold=0.1):
+        super().__init__(name="gradient", threshold=threshold)
+
+    def extract(self, image: np.ndarray) -> np.ndarray:
+        if image.ndim == 3 and image.shape[0] == 3:
+            image = np.transpose(image, (1, 2, 0))  # Convert to HWC format
+        if image.ndim == 3 and image.shape[-1] == 3:
+            gray = rgb2gray(image)
+        elif image.ndim == 2:
+            gray = image
+        else:
+            raise ValueError("Unexpected number of channels")
+
+        masked_image = self.apply_threshold_mask(gray)
+
+        # Compute gradients using Sobel operators
+        grad_x = cv2.Sobel(masked_image, cv2.CV_64F, 1, 0, ksize=5)
+        grad_y = cv2.Sobel(masked_image, cv2.CV_64F, 0, 1, ksize=5)
+
+        # Compute magnitude and direction
+        gradient_magnitude = np.sqrt(grad_x ** 2 + grad_y ** 2)
+        gradient_direction = np.arctan2(grad_y, grad_x)
+
+        return np.array([np.mean(gradient_magnitude), np.std(gradient_magnitude),
+                         np.mean(gradient_direction), np.std(gradient_direction)])
+
+    def get_feature_name(self) -> list:
+        return [f"{self.name}_magnitude_mean", f"{self.name}_magnitude_std",
+                f"{self.name}_direction_mean", f"{self.name}_direction_std"]
+
 
 # Feature extraction pipeline
 class FeatureExtractionStrategy:
