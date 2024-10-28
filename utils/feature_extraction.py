@@ -299,8 +299,12 @@ class FeatureExtractionStrategy:
         feature_vectors = []
         labels_list = []
 
+        total_batches = len(loader)
+        batch_count = 0
+
         for batch in loader:
             images, labels = batch
+            batch_count += 1
 
             for image, label in zip(images, labels):
                 image_np = image.numpy()  # Convert tensor to NumPy
@@ -309,6 +313,10 @@ class FeatureExtractionStrategy:
                 # Add feature vector and corresponding label to the lists
                 feature_vectors.append(feature_vector)
                 labels_list.append(label.item())  # Convert label tensor to scalar
+
+            # Log progress every 5 batches
+            if batch_count % 5 == 0 or batch_count == total_batches:
+                print(f"Processed {batch_count}/{total_batches} batches.")
 
         feature_matrix = np.array(feature_vectors)
         labels_array = np.array(labels_list)
