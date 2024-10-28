@@ -1,16 +1,17 @@
 import numpy as np
 from skimage.color import rgb2gray
 from torch.utils.data import DataLoader
-from skimage.feature import local_binary_pattern, hog
-from skimage.feature import graycomatrix, graycoprops
+from skimage.feature import local_binary_pattern, graycomatrix, graycoprops
 import cv2
+
 
 # Base FeatureExtractor class (Strategy Pattern)
 class FeatureExtractor:
-    def __init__(self, name: str, threshold: float = 0.1):
+    def __init__(self, name: str, threshold: float = 0.1, color_space=None):
         self.name = name
         self.threshold = threshold
-        
+        self.color_space = color_space
+
     def extract(self, image: np.ndarray) -> np.ndarray:
         raise NotImplementedError("This method should be implemented by subclasses.")
 
@@ -18,12 +19,25 @@ class FeatureExtractor:
         """Return the names of the features extracted by this extractor."""
         raise NotImplementedError("This method should be implemented by subclasses.")
 
+    def convert_color_space(self, image: np.ndarray) -> np.ndarray:
+        """
+        Convert the image to the specified color space.
+        """
+        conversion = {
+            'hsv': cv2.COLOR_RGB2HSV,
+            'lab': cv2.COLOR_RGB2LAB,
+            'gray': cv2.COLOR_RGB2GRAY
+        }
+        if self.color_space is not None:
+            return cv2.cvtColor(image,
+                                conversion.get(self.color_space, None)) if self.color_space in conversion else image
+        return image
+
     def apply_threshold_mask(self, image: np.ndarray) -> np.ndarray:
-        """
-        Applies a binary threshold mask if a significant portion of the image is black (background).
-        Only regions with intensity greater than 10 are considered in the ROI.
-        """
-        # Ensure the image is either grayscale (1 channel) or RGB (3 channels)
+        """Applies a binary threshold mask if a significant portion of the image is black (background)."""
+        if image.ndim == 3 and image.shape[0] == 3:
+            image = np.transpose(image, (1, 2, 0))  # Transpose to HWC format
+
         if image.ndim == 3 and image.shape[-1] == 3:  # RGB image (H, W, 3)
             gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
         elif image.ndim == 2:  # Grayscale image
@@ -36,16 +50,12 @@ class FeatureExtractor:
         total_pixels = gray.size
         black_pixel_ratio = black_pixels / total_pixels
 
-        #print(f"Black pixel ratio: {black_pixel_ratio}")
-
         if black_pixel_ratio > self.threshold:
             # Create a binary mask where non-black regions are preserved
             _, mask = cv2.threshold(gray, 10, 255, cv2.THRESH_BINARY)
-
-            # Ensure both the mask and image are the same type and size
-            mask = mask.astype(np.uint8)  # Ensure the mask is uint8
+            mask = mask.astype(np.uint8)
             if image.ndim == 3:
-                image = image.astype(np.uint8)  # Ensure the image is uint8
+                image = image.astype(np.uint8)
 
             # Check if the mask and the image match in size
             if mask.shape != image.shape[:2]:
@@ -53,68 +63,112 @@ class FeatureExtractor:
 
             # Apply mask to the image (only works with matching sizes and types)
             masked_image = cv2.bitwise_and(image, image, mask=mask)
-            #print("Mask applied. Extracting from the region of interest.")
             return masked_image
         else:
-            #print("No significant black regions. Extracting features from the entire image.")
             return image
 
 
 # Specific feature extraction strategies
 class MeanExtractor(FeatureExtractor):
-    def __init__(self, threshold=0.1):
+    def __init__(self, color_space='rgb', threshold=0.1):
         super().__init__(name="mean", threshold=threshold)
+        self.color_space = color_space
 
     def extract(self, image: np.ndarray) -> np.ndarray:
         if image.ndim == 3 and image.shape[0] == 3:
-            image = np.transpose(image, (1, 2, 0)) 
+            image = np.transpose(image, (1, 2, 0))  # Convert to HWC format
+
+        image = self.convert_color_space(image)
         masked_image = self.apply_threshold_mask(image)
-        return np.mean(masked_image, axis=(0, 1))  # Compute mean across height, width
+        return np.mean(masked_image, axis=(0, 1))
 
     def get_feature_name(self) -> list:
-        return [f"{self.name}_channel_{i}" for i in range(3)]
+        return [f"{self.name}_{self.color_space}_channel_{i}" for i in range(3)]
 
 
 class StdExtractor(FeatureExtractor):
-    def __init__(self, threshold=0.1):
+    def __init__(self, color_space='rgb', threshold=0.1):
         super().__init__(name="std", threshold=threshold)
+        self.color_space = color_space
 
     def extract(self, image: np.ndarray) -> np.ndarray:
         if image.ndim == 3 and image.shape[0] == 3:
-            image = np.transpose(image, (1, 2, 0)) 
+            image = np.transpose(image, (1, 2, 0))  # Convert to HWC format
+
+        image = self.convert_color_space(image)
         masked_image = self.apply_threshold_mask(image)
-        return np.std(masked_image, axis=(0, 1))  # Compute std across height, width
+        return np.std(masked_image, axis=(0, 1))
 
     def get_feature_name(self) -> list:
-        return [f"{self.name}_channel_{i}" for i in range(3)]
+        return [f"{self.name}_{self.color_space}_channel_{i}" for i in range(3)]
 
 
 class VarExtractor(FeatureExtractor):
-    def __init__(self, threshold=0.1):
+    def __init__(self, color_space='rgb', threshold=0.1):
         super().__init__(name="var", threshold=threshold)
+        self.color_space = color_space
 
     def extract(self, image: np.ndarray) -> np.ndarray:
         if image.ndim == 3 and image.shape[0] == 3:
-            image = np.transpose(image, (1, 2, 0)) 
+            image = np.transpose(image, (1, 2, 0))  # Convert to HWC format
+
+        image = self.convert_color_space(image)
         masked_image = self.apply_threshold_mask(image)
-        return np.var(masked_image, axis=(0, 1))  # Compute variance across height, width
+        return np.var(masked_image, axis=(0, 1))
 
     def get_feature_name(self) -> list:
-        return [f"{self.name}_channel_{i}" for i in range(3)]
+        return [f"{self.name}_{self.color_space}_channel_{i}" for i in range(3)]
 
 
 class MaxExtractor(FeatureExtractor):
-    def __init__(self, threshold=0.1):
+    def __init__(self, color_space='rgb', threshold=0.1):
         super().__init__(name="max", threshold=threshold)
+        self.color_space = color_space
 
     def extract(self, image: np.ndarray) -> np.ndarray:
         if image.ndim == 3 and image.shape[0] == 3:
-            image = np.transpose(image, (1, 2, 0)) 
+            image = np.transpose(image, (1, 2, 0))  # Convert to HWC format
+
+        image = self.convert_color_space(image)
         masked_image = self.apply_threshold_mask(image)
-        return np.max(masked_image, axis=(0, 1))  # Compute max across height, width
+        return np.max(masked_image, axis=(0, 1))
 
     def get_feature_name(self) -> list:
-        return [f"{self.name}_channel_{i}" for i in range(3)]
+        return [f"{self.name}_{self.color_space}_channel_{i}" for i in range(3)]
+
+
+class GradientExtractor(FeatureExtractor):
+    def __init__(self, threshold=0.1):
+        super().__init__(name="gradient", threshold=threshold)
+
+    def extract(self, image: np.ndarray) -> np.ndarray:
+        # Convert to grayscale if image has multiple channels
+        if image.ndim == 3 and image.shape[0] == 3:
+            image = np.transpose(image, (1, 2, 0))  # Convert to HWC format
+
+        if image.ndim == 3 and image.shape[-1] == 3:
+            gray = rgb2gray(image)
+        elif image.ndim == 2:
+            gray = image
+        else:
+            print(image.ndim)
+            raise ValueError("Unexpected number of channels")
+
+        masked_image = self.apply_threshold_mask(gray)
+
+        grad_x = cv2.Sobel(masked_image, cv2.CV_64F, 1, 0, ksize=5)
+        grad_y = cv2.Sobel(masked_image, cv2.CV_64F, 0, 1, ksize=5)
+
+        gradient_magnitude = np.sqrt(grad_x ** 2 + grad_y ** 2)
+        gradient_direction = np.arctan2(grad_y, grad_x)
+
+        return np.array([np.mean(gradient_magnitude), np.std(gradient_magnitude),
+                         np.mean(gradient_direction), np.std(gradient_direction)])
+
+    def get_feature_name(self) -> list:
+        return [f"{self.name}_magnitude_mean", f"{self.name}_magnitude_std",
+                f"{self.name}_direction_mean", f"{self.name}_direction_std"]
+
 
 class LBPExtractor(FeatureExtractor):
     def __init__(self, radius=1, n_points=8, threshold=0.1):
@@ -124,7 +178,8 @@ class LBPExtractor(FeatureExtractor):
 
     def extract(self, image: np.ndarray) -> np.ndarray:
         if image.ndim == 3 and image.shape[0] == 3:
-            image = np.transpose(image, (1, 2, 0))   # Transpose to HWC format
+            image = np.transpose(image, (1, 2, 0))  # Transpose to HWC format
+
         if image.ndim == 3 and image.shape[-1] == 3:
             image = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
 
@@ -149,6 +204,7 @@ class LBPExtractor(FeatureExtractor):
     def get_feature_name(self) -> list:
         return [f"{self.name}_bin_{i}" for i in range(self.n_points + 2)]
 
+
 class GaborExtractor(FeatureExtractor):
     def __init__(self, num_orientations=8, num_scales=4, threshold=0.1):
         super().__init__(name="gabor", threshold=threshold)
@@ -158,6 +214,7 @@ class GaborExtractor(FeatureExtractor):
     def extract(self, image: np.ndarray) -> np.ndarray:
         if image.ndim == 3 and image.shape[0] == 3:
             image = np.transpose(image, (1, 2, 0))  # Convert to HWC
+
         if image.ndim == 3 and image.shape[-1] == 3:
             image = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)  # Convert to grayscale
 
@@ -167,15 +224,18 @@ class GaborExtractor(FeatureExtractor):
             for scale in np.linspace(5, 20, self.num_scales):
                 kernel = cv2.getGaborKernel((21, 21), scale, theta, 10, 0.5, 0, ktype=cv2.CV_32F)
                 filtered_img = cv2.filter2D(image, cv2.CV_8UC3, kernel)
-                filtered_images.append(np.mean(filtered_img))  # You can choose other stats like variance
+                filtered_images.append(np.mean(filtered_img))
 
         return np.array(filtered_images)
 
     def get_feature_name(self) -> list:
         return [f"{self.name}_filter_{i}" for i in range(self.num_orientations * self.num_scales)]
-    
+
+
 class GLCMExtractor(FeatureExtractor):
-    def __init__(self, distances=[1], angles=[0], properties=['contrast', 'dissimilarity', 'homogeneity', 'energy', 'correlation', 'ASM'], threshold=0.1):
+    def __init__(self, distances=[1], angles=[0],
+                 properties=['contrast', 'dissimilarity', 'homogeneity', 'energy', 'correlation', 'ASM'],
+                 threshold=0.1):
         super().__init__(name="glcm", threshold=threshold)
         self.distances = distances
         self.angles = angles
@@ -185,6 +245,7 @@ class GLCMExtractor(FeatureExtractor):
         # Convert to grayscale if image has multiple channels
         if image.ndim == 3 and image.shape[0] == 3:
             image = np.transpose(image, (1, 2, 0))  # Convert to HWC format
+
         if image.ndim == 3 and image.shape[-1] == 3:
             image = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
 
@@ -202,7 +263,7 @@ class GLCMExtractor(FeatureExtractor):
         feature_values = []
         for prop in self.properties:
             feature_values.extend(graycoprops(glcm, prop).flatten())
-        
+
         return np.array(feature_values)
 
     def get_feature_name(self) -> list:
@@ -212,38 +273,6 @@ class GLCMExtractor(FeatureExtractor):
                 for angle in self.angles:
                     feature_names.append(f"{self.name}_{prop}_dist_{dist}_angle_{angle}")
         return feature_names
-
-
-class GradientExtractor(FeatureExtractor):
-    def __init__(self, threshold=0.1):
-        super().__init__(name="gradient", threshold=threshold)
-
-    def extract(self, image: np.ndarray) -> np.ndarray:
-        if image.ndim == 3 and image.shape[0] == 3:
-            image = np.transpose(image, (1, 2, 0))  # Convert to HWC format
-        if image.ndim == 3 and image.shape[-1] == 3:
-            gray = rgb2gray(image)
-        elif image.ndim == 2:
-            gray = image
-        else:
-            raise ValueError("Unexpected number of channels")
-
-        masked_image = self.apply_threshold_mask(gray)
-
-        # Compute gradients using Sobel operators
-        grad_x = cv2.Sobel(masked_image, cv2.CV_64F, 1, 0, ksize=5)
-        grad_y = cv2.Sobel(masked_image, cv2.CV_64F, 0, 1, ksize=5)
-
-        # Compute magnitude and direction
-        gradient_magnitude = np.sqrt(grad_x ** 2 + grad_y ** 2)
-        gradient_direction = np.arctan2(grad_y, grad_x)
-
-        return np.array([np.mean(gradient_magnitude), np.std(gradient_magnitude),
-                         np.mean(gradient_direction), np.std(gradient_direction)])
-
-    def get_feature_name(self) -> list:
-        return [f"{self.name}_magnitude_mean", f"{self.name}_magnitude_std",
-                f"{self.name}_direction_mean", f"{self.name}_direction_std"]
 
 
 # Feature extraction pipeline
@@ -256,8 +285,6 @@ class FeatureExtractionStrategy:
         self.extractors.append(extractor)
 
     def extract_features(self, image: np.ndarray) -> np.ndarray:
-        # Apply all the extractors and concatenate their results
-        #print(image.shape)
         features = [extractor.extract(image) for extractor in self.extractors]
         return np.concatenate(features)
 
@@ -268,51 +295,23 @@ class FeatureExtractionStrategy:
             feature_names.extend(extractor.get_feature_name())
         return feature_names
 
-
     def run(self, loader: DataLoader):
-            feature_vectors = []
-            labels_list = []
+        feature_vectors = []
+        labels_list = []
 
-            for batch in loader:
-                #print("Batch contents: ", batch)
-                
-                images, labels = batch
-                #print(labels)
-                # Iterate through images in the batch
-                for image, label in zip(images, labels):
-                    image_np = image.numpy()  # Convert tensor to NumPy
-                    feature_vector = self.extract_features(image_np)
+        for batch in loader:
+            images, labels = batch
 
-                    # Add feature vector and corresponding label to the lists
-                    feature_vectors.append(feature_vector)
-                    labels_list.append(label.item())  # Convert label tensor to scalar
+            for image, label in zip(images, labels):
+                image_np = image.numpy()  # Convert tensor to NumPy
+                feature_vector = self.extract_features(image_np)
 
-            # Convert to NumPy arrays
-            feature_matrix = np.array(feature_vectors)
-            labels_array = np.array(labels_list)
-            
-            self.feature_vectors = feature_matrix
-            return feature_matrix, labels_array
+                # Add feature vector and corresponding label to the lists
+                feature_vectors.append(feature_vector)
+                labels_list.append(label.item())  # Convert label tensor to scalar
 
+        feature_matrix = np.array(feature_vectors)
+        labels_array = np.array(labels_list)
 
-# The extract_features function will now use the feature extraction pipeline
-def extract_features(loader: DataLoader, feature_extraction: FeatureExtractionStrategy):
-    feature_vectors = []
-
-    for batch in loader:
-        images, labels = batch
-
-        # Iterate through images in the batch
-        for image in images:
-            image_np = image.numpy()  # Convert tensor to NumPy
-
-            # Extract features using the provided pipeline
-            feature_vector = feature_extraction.extract_features(image_np)
-
-            # Add to feature vector list
-            feature_vectors.append(feature_vector)
-
-    # Convert list of feature vectors to a numpy array
-    feature_matrix = np.array(feature_vectors)
-
-    return feature_matrix
+        self.feature_vectors = feature_matrix
+        return feature_matrix, labels_array
