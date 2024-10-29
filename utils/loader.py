@@ -25,10 +25,8 @@ def balanced_subset(dataset, percentage=100):
     # Sample equal number of images per class
     subset_indices = []
     for cls_idx, indices in class_indices.items():
-        subset_indices.extend(np.random.choice(indices, min(per_class_images, len(indices)), replace=False))
+        subset_indices.extend(indices[:per_class_images])
 
-    # Shuffle the combined indices
-    random.shuffle(subset_indices)
     return subset_indices
 
 
@@ -51,6 +49,7 @@ class FactoryLoader:
         # Load the dataset using the transformation pipeline
         self.batch_size = batch_size
         self.__factory = factory
+        self.random = shuffle
         dataset = datasets.ImageFolder(path, transform=transform)
 
         # Get a balanced subset of the dataset
@@ -61,12 +60,12 @@ class FactoryLoader:
 
         self.__instance = None
 
-    def get_loader(self, shuffle=True) -> DataLoader:
+    def get_loader(self) -> DataLoader:
         # Create DataLoader
         if self.__instance is None:
             self.__instance = DataLoader(dataset=self.__dataset,
                                          batch_size=self.batch_size,
-                                         shuffle=shuffle)
+                                         shuffle=self.random)
         return self.__instance
 
     def get_num_classes(self) -> int:
@@ -84,7 +83,7 @@ class FactoryLoader:
     def __len__(self):
         return len(self.__dataset)
 
-    def show_images(self, num_images=8, randomize=False):
+    def show_images(self, num_images=8):
         # Determine number of rows and columns for the grid
         num_columns = 4
         num_rows = (num_images + num_columns - 1) // num_columns
@@ -108,8 +107,6 @@ class FactoryLoader:
         all_labels = torch.cat(labels_list, dim=0)
 
         indices = np.arange(all_images.shape[0])
-        if randomize:
-            np.random.shuffle(indices)
 
         selected_indices = indices[:num_images]
 

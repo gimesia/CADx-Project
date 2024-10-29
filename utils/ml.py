@@ -1,3 +1,7 @@
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
+import numpy as np
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
 import logging
 import pandas as pd
@@ -16,9 +20,9 @@ class MLPipeline:
     def __init__(self, dataset_path, preprocessing_factory: PreprocessingFactory,
                  feature_strategy: FeatureExtractionStrategy,
                  classifiers: list[ClassifierMixin], percentage: int = 100,
-                 verbose: bool = False, shuffle=False):
+                 verbose: bool = False, shuffle=False, batch_size=24):
         self.loader = FactoryLoader(path=dataset_path, factory=preprocessing_factory, percentage=percentage,
-                                    shuffle=shuffle)
+                                    batch_size=batch_size, shuffle=shuffle)
         self.feature_strategy = feature_strategy
         self.classifiers = classifiers
         self.feature_matrix = None
@@ -26,6 +30,7 @@ class MLPipeline:
         self.is_extracted = False
         self.fitted_classifiers = {}
         self.predictions = {}
+        self.batch_size = batch_size
         self.verbose = verbose  # Control logging verbosity
 
         if self.verbose:
@@ -34,6 +39,9 @@ class MLPipeline:
 
     def run_feature_extraction(self):
         """Extracts features and labels from the dataset."""
+        if self.is_extracted:
+            logger.info("Features already extracted")
+            return
         if self.verbose:
             logger.info("Running feature extraction...")
 
@@ -47,6 +55,7 @@ class MLPipeline:
     def fit_classifiers(self):
         """
         Fits all classifiers on the extracted features using the labels obtained from the loader.
+        Logs when the fitting starts and the time taken to complete.
         """
         if not self.is_extracted:
             raise RuntimeError("Features must be extracted before fitting classifiers.")
@@ -54,15 +63,72 @@ class MLPipeline:
         if self.verbose:
             logger.info("Fitting classifiers...")
 
+        start_time = time.time()  # Start timing
+
         self.fitted_classifiers = {}
-        for clf in self.classifiers:
-            clf.fit(self.feature_matrix, self.labels)
-            self.fitted_classifiers[clf.__class__.__name__] = clf
+        for i, clf in enumerate(self.classifiers):
+            start = time.time()
+            classifier_key = clf.__class__.__name__+str(i)
+
             if self.verbose:
-                logger.info("Fitted classifier: %s", clf.__class__.__name__)
+                logger.info(f"Fitting classifier: {classifier_key}")
+
+            clf.fit(self.feature_matrix, self.labels)
+
+            self.fitted_classifiers[classifier_key] = clf
+
+            fit_duration = time.time() - start
+            if self.verbose:
+                logger.info(f"Fitted classifier: {classifier_key}; Done in {fit_duration} seconds")
+
+        duration = time.time() - start_time
+        if self.verbose:
+            logger.info("Fitting completed in %.2f seconds.", duration)
+
+    def fit_classifiers_async(self):
+        """
+        Fits all classifiers on the extracted features using the labels obtained from the loader asynchronously.
+        Logs when the fitting starts and the time taken to complete.
+        """
+        if not self.is_extracted:
+            raise RuntimeError("Features must be extracted before fitting classifiers.")
 
         if self.verbose:
-            logger.info("All classifiers have been fitted.")
+            logger.info("Fitting classifiers asynchronously...")
+
+        start_time = time.time()  # Start timing
+        self.fitted_classifiers = {}
+
+        def fit_single_classifier(clf, classifier_key=None):
+            """Fits a single classifier and returns its name and instance."""
+            start = time.time()
+
+            if classifier_key is None:
+                classifier_key = clf.__class__.__name__
+
+            if self.verbose:
+                logger.info("Fitting classifier: %s", classifier_key)
+            clf.fit(np.nan_to_num(self.feature_matrix), self.labels)
+
+            duration_single = time.time() - start
+            if self.verbose:
+                logger.info(f"Classifier {clf.__class__.__name__} completed in {duration_single} seconds.")
+            return clf.__class__.__name__, clf
+
+        # Using ThreadPoolExecutor to fit classifiers asynchronously
+        with ThreadPoolExecutor() as executor:
+            futures = {executor.submit(fit_single_classifier, clf): clf for clf in self.classifiers}
+
+            for i, future in enumerate(as_completed(futures)):
+                clf_name, fitted_clf = future.result()
+                self.fitted_classifiers[clf_name+str(i)] = fitted_clf
+                if self.verbose:
+                    logger.info("Fitted classifier: %s",)
+        duration =  time.time() - start_time
+
+        if self.verbose:
+            logger.info("Fitting completed in %.2f seconds.", duration)
+
 
     def predict_with_classifiers(self, new_dataset_path, percentage=100):
         """
@@ -81,8 +147,11 @@ class MLPipeline:
             logger.info("Predicting with classifiers on dataset: %s", new_dataset_path)
 
         # Load and extract features from the new dataset
-        new_loader = FactoryLoader(path=new_dataset_path, factory=self.loader.get_factory(), percentage=percentage)
+        new_loader = FactoryLoader(path=new_dataset_path, factory=self.loader.get_factory(),
+                                   percentage=percentage, batch_size=self.batch_size)
         new_feature_matrix, new_labels = self.feature_strategy.run(new_loader.get_loader())
+
+        new_feature_matrix = np.nan_to_num(new_feature_matrix) # Impute nans
 
         # Store predictions in the class attribute
         self.predictions = {"GT": new_labels, }
@@ -138,6 +207,10 @@ class MLPipeline:
         """Returns classes found in training."""
         return self.loader.get_classes()
 
+    def get_preprocessing_steps(self):
+        """Returns preprocessing steps applied in the factory"""
+        return self.loader.get_transformation_steps()
+
     def save_feature_matrix_to_excel(self, output_dir: str = './'):
         """
         Saves the feature matrix to an Excel file using preprocessing step names in the filename.
@@ -173,3 +246,12 @@ class MLPipeline:
             logger.info("Feature matrix saved to %s", file_path)
 
         return file_path
+
+
+    def load_features_from_excel(self, inp_dir="./"):
+        if self.verbose:
+            logger.info("Loading feature matrix from Excel...")
+
+        step_names = "_".join(self.loader.get_transformation_steps().keys())
+        if not step_names:
+            step_names = 'default'

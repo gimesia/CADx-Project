@@ -4,6 +4,8 @@ import time
 import logging
 
 def norm(image: np.ndarray, dtype):
+    image = np.nan_to_num(image, True)
+
     match dtype:
         case np.uint8:
             return cv2.normalize(image, image, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
