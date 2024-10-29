@@ -198,6 +198,10 @@ class MLPipeline:
         """Returns classes found in training."""
         return self.loader.get_classes()
 
+    def get_preprocessing_steps(self):
+        """Returns preprocessing steps applied in the factory"""
+        return self.loader.get_transformation_steps()
+
     def save_feature_matrix_to_excel(self, output_dir: str = './'):
         """
         Saves the feature matrix to an Excel file using preprocessing step names in the filename.
