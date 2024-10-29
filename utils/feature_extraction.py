@@ -1,13 +1,16 @@
 import numpy as np
+from scipy import ndimage
 from skimage.color import rgb2gray
 from torch.utils.data import DataLoader
 from skimage.feature import local_binary_pattern, graycomatrix, graycoprops
 import cv2
 
+from utils.utils import norm
+
 
 # Base FeatureExtractor class (Strategy Pattern)
 class FeatureExtractor:
-    def __init__(self, name: str, threshold: float = 0.1, color_space=None):
+    def __init__(self, name: str, threshold: float = 0.01, color_space=None):
         self.name = name
         self.threshold = threshold
         self.color_space = color_space
@@ -33,36 +36,42 @@ class FeatureExtractor:
                                 conversion.get(self.color_space, None)) if self.color_space in conversion else image
         return image
 
-    def apply_threshold_mask(self, image: np.ndarray) -> np.ndarray:
+    def apply_threshold_mask(self, image: np.ndarray, nan=False) -> np.ndarray:
         """Applies a binary threshold mask if a significant portion of the image is black (background)."""
         if image.ndim == 3 and image.shape[0] == 3:
             image = np.transpose(image, (1, 2, 0))  # Transpose to HWC format
 
         if image.ndim == 3 and image.shape[-1] == 3:  # RGB image (H, W, 3)
-            gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
+            gray = norm(cv2.cvtColor(image, cv2.COLOR_RGB2GRAY), np.uint8)
         elif image.ndim == 2:  # Grayscale image
-            gray = image
+            gray = norm(image, np.uint8)
         else:
             raise ValueError(f"Unexpected number of channels: {image.shape[-1]}. Expected 1 or 3 channels.")
 
+        _, mask = cv2.threshold(gray, 20, 255, cv2.THRESH_BINARY)
+        mask = ndimage.binary_fill_holes(mask)
+
         # Calculate the black pixel ratio
-        black_pixels = np.sum(gray == 0)
+        black_pixels = np.sum(mask == 0)
         total_pixels = gray.size
         black_pixel_ratio = black_pixels / total_pixels
 
+
         if black_pixel_ratio > self.threshold:
             # Create a binary mask where non-black regions are preserved
-            _, mask = cv2.threshold(gray, 10, 255, cv2.THRESH_BINARY)
             mask = mask.astype(np.uint8)
-            if image.ndim == 3:
-                image = image.astype(np.uint8)
+            # if image.ndim == 3:
+            # image = image.astype(np.uint8)
 
             # Check if the mask and the image match in size
             if mask.shape != image.shape[:2]:
                 raise ValueError(f"Mask size {mask.shape} and image size {image.shape[:2]} do not match.")
 
             # Apply mask to the image (only works with matching sizes and types)
-            masked_image = cv2.bitwise_and(image, image, mask=mask)
+            masked_image = image.copy()
+
+            masked_image[mask == 0] = np.nan if nan else 0
+
             return masked_image
         else:
             return image
@@ -187,8 +196,10 @@ class LBPExtractor(FeatureExtractor):
         masked_image = self.apply_threshold_mask(image)
 
         # Replace masked regions with zeros (or another constant)
-        masked_image[masked_image == 0] = np.nan  # Handle NaNs as invalid areas
-        
+        masked_image[masked_image == 0] = np.nan  # Handle NaNs as invalid areas TODO!
+
+        masked_image = norm(masked_image, np.uint8)
+
         # Apply LBP
         lbp = local_binary_pattern(np.nan_to_num(masked_image), self.n_points, self.radius, method='uniform')
 
@@ -202,7 +213,7 @@ class LBPExtractor(FeatureExtractor):
         return hist
 
     def get_feature_name(self) -> list:
-        return [f"{self.name}_bin_{i}" for i in range(self.n_points + 2)]
+        return [f"{self.name}_rad{self.radius}_bins{self.n_points}_{i}" for i in range(self.n_points + 2)]
 
 
 class GaborExtractor(FeatureExtractor):
@@ -251,9 +262,12 @@ class GLCMExtractor(FeatureExtractor):
 
         # Apply threshold mask
         masked_image = self.apply_threshold_mask(image)
-        
+
+        # Norm to int
+        masked_image = norm(masked_image, np.uint8)
+
         # Compute GLCM matrix and texture features
-        glcm = graycomatrix(masked_image.astype(np.uint8), 
+        glcm = graycomatrix(masked_image,
                             distances=self.distances, 
                             angles=self.angles, 
                             symmetric=True, 
