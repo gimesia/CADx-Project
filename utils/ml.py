@@ -65,10 +65,12 @@ class MLPipeline:
 
         start_time = time.time()  # Start timing
 
-        self.fitted_classifiers = {}
         for i, clf in enumerate(self.classifiers):
             start = time.time()
+
             classifier_key = clf.__class__.__name__+str(i)
+            if classifier_key in self.fitted_classifiers:
+                continue
 
             if self.verbose:
                 logger.info(f"Fitting classifier: {classifier_key}")
@@ -84,51 +86,6 @@ class MLPipeline:
         duration = time.time() - start_time
         if self.verbose:
             logger.info("Fitting completed in %.2f seconds.", duration)
-
-    def fit_classifiers_async(self):
-        """
-        Fits all classifiers on the extracted features using the labels obtained from the loader asynchronously.
-        Logs when the fitting starts and the time taken to complete.
-        """
-        if not self.is_extracted:
-            raise RuntimeError("Features must be extracted before fitting classifiers.")
-
-        if self.verbose:
-            logger.info("Fitting classifiers asynchronously...")
-
-        start_time = time.time()  # Start timing
-        self.fitted_classifiers = {}
-
-        def fit_single_classifier(clf, classifier_key=None):
-            """Fits a single classifier and returns its name and instance."""
-            start = time.time()
-
-            if classifier_key is None:
-                classifier_key = clf.__class__.__name__
-
-            if self.verbose:
-                logger.info("Fitting classifier: %s", classifier_key)
-            clf.fit(np.nan_to_num(self.feature_matrix), self.labels)
-
-            duration_single = time.time() - start
-            if self.verbose:
-                logger.info(f"Classifier {clf.__class__.__name__} completed in {duration_single} seconds.")
-            return clf.__class__.__name__, clf
-
-        # Using ThreadPoolExecutor to fit classifiers asynchronously
-        with ThreadPoolExecutor() as executor:
-            futures = {executor.submit(fit_single_classifier, clf): clf for clf in self.classifiers}
-
-            for i, future in enumerate(as_completed(futures)):
-                clf_name, fitted_clf = future.result()
-                self.fitted_classifiers[clf_name+str(i)] = fitted_clf
-                if self.verbose:
-                    logger.info("Fitted classifier: %s",)
-        duration =  time.time() - start_time
-
-        if self.verbose:
-            logger.info("Fitting completed in %.2f seconds.", duration)
-
 
     def predict_with_classifiers(self, new_dataset_path, percentage=100):
         """
