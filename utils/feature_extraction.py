@@ -4,7 +4,7 @@ from skimage.color import rgb2gray
 from torch.utils.data import DataLoader
 from skimage.feature import local_binary_pattern, graycomatrix, graycoprops
 import cv2
-
+from scipy.stats import skew
 from utils.utils import norm
 
 
@@ -253,7 +253,7 @@ class GLCMExtractor(FeatureExtractor):
         self.properties = properties
 
     def extract(self, image: np.ndarray) -> np.ndarray:
-        # Convert to grayscale if image has multiple channels
+        # Convert to grayscale if the image has multiple channels
         if image.ndim == 3 and image.shape[0] == 3:
             image = np.transpose(image, (1, 2, 0))  # Convert to HWC format
 
@@ -263,10 +263,10 @@ class GLCMExtractor(FeatureExtractor):
         # Apply threshold mask
         masked_image = self.apply_threshold_mask(image)
 
-        # Norm to int
+        # Normalize to int
         masked_image = norm(masked_image, np.uint8)
 
-        # Compute GLCM matrix and texture features
+        # Compute GLCM matrix
         glcm = graycomatrix(masked_image,
                             distances=self.distances, 
                             angles=self.angles, 
@@ -276,7 +276,12 @@ class GLCMExtractor(FeatureExtractor):
         # Extract specified properties
         feature_values = []
         for prop in self.properties:
-            feature_values.extend(graycoprops(glcm, prop).flatten())
+            if prop == 'entropy':
+                # Calculate entropy manually for each distance and angle
+                entropy_values = -np.sum(glcm * np.log(glcm + 1e-10), axis=(0, 1))  # Add a small epsilon to avoid log(0)
+                feature_values.extend(entropy_values.flatten())
+            else:
+                feature_values.extend(graycoprops(glcm, prop).flatten())
 
         return np.array(feature_values)
 
@@ -288,7 +293,43 @@ class GLCMExtractor(FeatureExtractor):
                     feature_names.append(f"{self.name}_{prop}_dist_{dist}_angle_{angle}")
         return feature_names
 
+class ColorMomentsExtractor(FeatureExtractor):
+    def __init__(self, color_space='rgb', threshold=0.1):
+        super().__init__(name="color_moments", threshold=threshold)
+        self.color_space = color_space
 
+    def extract(self, image: np.ndarray) -> np.ndarray:
+        # Ensure the image is in HWC format if it's in CHW
+        if image.ndim == 3 and image.shape[0] == 3:
+            image = np.transpose(image, (1, 2, 0))  # Convert to HWC format
+
+        # Convert the image to the specified color space
+        image = self.convert_color_space(image)
+
+        # Apply the threshold-based mask
+        masked_image = self.apply_threshold_mask(image)
+
+        # Compute the mean, standard deviation, and skewness for each channel
+        color_moments = []
+        for i in range(masked_image.shape[-1]):  # Iterate over each color channel
+            channel = masked_image[:, :, i]
+            mean_val = np.nanmean(channel)       # Mean
+            std_val = np.nanstd(channel)         # Standard deviation
+            skew_val = skew(channel.flatten(), nan_policy='omit')  # Skewness
+
+            color_moments.extend([mean_val, std_val, skew_val])
+
+        return np.array(color_moments)
+
+    def get_feature_name(self) -> list:
+        # Feature names for mean, standard deviation, and skewness of each color channel
+        feature_names = []
+        for i in range(3):  # Assuming 3 color channels (RGB or other)
+            feature_names.extend([f"{self.name}_{self.color_space}_channel_{i}_mean",
+                                  f"{self.name}_{self.color_space}_channel_{i}_std",
+                                  f"{self.name}_{self.color_space}_channel_{i}_skew"])
+        return feature_names
+    
 # Feature extraction pipeline
 class FeatureExtractionStrategy:
     def __init__(self):
