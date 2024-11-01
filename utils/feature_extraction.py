@@ -4,7 +4,7 @@ from skimage.color import rgb2gray
 from torch.utils.data import DataLoader
 from skimage.feature import local_binary_pattern, graycomatrix, graycoprops
 import cv2
-from scipy.stats import skew
+from scipy.stats import skew, kurtosis
 from utils.utils import norm
 
 
@@ -316,8 +316,9 @@ class ColorMomentsExtractor(FeatureExtractor):
             mean_val = np.nanmean(channel)       # Mean
             std_val = np.nanstd(channel)         # Standard deviation
             skew_val = skew(channel.flatten(), nan_policy='omit')  # Skewness
+            kurtosis_val = kurtosis(channel.flatten(), nan_policy='omit') # Kurtosis
 
-            color_moments.extend([mean_val, std_val, skew_val])
+            color_moments.extend([mean_val, std_val, skew_val, kurtosis_val])
 
         return np.array(color_moments)
 
