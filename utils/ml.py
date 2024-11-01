@@ -31,6 +31,7 @@ class MLPipeline:
         self.is_extracted = False
         self.fitted_classifiers = {}
         self.predictions = {}
+        self.top_features_per_classifier = {} # Dictionary to store the top 10 features for each classifier
         self.batch_size = batch_size
         self.verbose = verbose  # Control logging verbosity
 
@@ -103,9 +104,6 @@ class MLPipeline:
 
         start_time = time.time()  # Start timing
 
-        # Dictionary to store the top 10 features for each classifier
-        self.top_features_per_classifier = {}
-
         for i, clf in enumerate(self.classifiers):
             start = time.time()
 
@@ -121,15 +119,17 @@ class MLPipeline:
 
             # Check if the classifier has feature importances
             if hasattr(clf, "feature_importances_"):
-                print("yessss")
-                # Get feature importances and select the top 10
-                importances = clf.feature_importances_
-                top_indices = np.argsort(importances)[-10:][::-1]  # Get indices of top 10 features
-                top_features = [(self.get_feature_names()[index], importances[index]) for index in top_indices]
-                self.top_features_per_classifier[classifier_key] = top_features
+                try:
+                    # Get feature importances and select the top 10
+                    importances = clf.feature_importances_
+                    top_indices = np.argsort(importances)[-10:][::-1]  # Get indices of top 10 features
+                    top_features = [(self.get_feature_names()[index], importances[index]) for index in top_indices]
+                    self.top_features_per_classifier[classifier_key] = top_features
 
-                if self.verbose:
-                    logger.info(f"Top 10 features for {classifier_key}: {top_features}")
+                    if self.verbose:
+                        logger.info(f"Top 10 features for {classifier_key}: {top_features}")
+                except Exception as e:
+                    print(e)
 
             fit_duration = time.time() - start
             if self.verbose:
@@ -143,14 +143,16 @@ class MLPipeline:
         """
         Returns the top 10 most relevant features for each classifier that supports feature importances.
         """
+        try:
+            if not hasattr(self, 'top_features_per_classifier'):
+                raise RuntimeError("Top features have not been calculated. Run 'fit_classifiers' first.")
 
-        if not hasattr(self, 'top_features_per_classifier'):
-            raise RuntimeError("Top features have not been calculated. Run 'fit_classifiers' first.")
-
-        for clf_name, top_features in self.top_features_per_classifier.items():
-            print(f"\nTop 10 features for {clf_name}:")
-            for feature, importance in top_features:
-                print(f"{feature}: {importance:.4f}")
+            for clf_name, top_features in self.top_features_per_classifier.items():
+                print(f"\nTop 10 features for {clf_name}:")
+                for feature, importance in top_features:
+                    print(f"{feature}: {importance:.4f}")
+        except Exception as e:
+            print(e)
 
     def predict_with_classifiers(self, new_dataset_path, percentage=100):
         """
@@ -185,7 +187,7 @@ class MLPipeline:
 
         return self.predictions
 
-    def calculate_metrics(self, metrics=('accuracy', 'precision', 'recall', 'f1', 'report'), avg="macro"):
+    def calculate_metrics(self, metrics=('accuracy', 'precision', 'recall', 'f1', 'kappa'), avg="macro"):
         """
         Calculates specified metrics for each classifier's stored predictions.
 
@@ -216,12 +218,18 @@ class MLPipeline:
             if 'kappa' in metrics:
                 clf_metrics["kappa"] = cohen_kappa_score(self.predictions["GT"], clf_predictions)
             if 'report' in metrics:
-                report =  classification_report(self.predictions["GT"], clf_predictions)
+                try:
+                    report =  classification_report(self.predictions["GT"], clf_predictions)
+                except Exception as e:
+                    print(e)
             results[clf_name] = clf_metrics
 
             if self.verbose:
                 logger.info("Metrics for classifier %s: %s", clf_name, clf_metrics)
-                logger.info("Classification report \n%s ", report)
+                try:
+                    logger.info("Classification report \n%s ", report)
+                except Exception as e:
+                    print(e)
 
         return results
 
