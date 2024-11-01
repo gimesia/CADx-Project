@@ -2,7 +2,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import numpy as np
-from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, classification_report
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, classification_report, cohen_kappa_score
 import logging
 import pandas as pd
 from sklearn.base import ClassifierMixin
@@ -87,9 +87,9 @@ class MLPipeline:
     def optional_pca(self, feature_type="lbp", n_components=5):
         if not self.is_extracted:
             raise RuntimeError("Features must be extracted before applying PCA.")
-        
+
         self.apply_pca_to_features(feature_type=feature_type, n_components=n_components)
-        
+
     def fit_classifiers(self):
         """
         Fits all classifiers on the extracted features using the labels obtained from the loader.
@@ -185,7 +185,7 @@ class MLPipeline:
 
         return self.predictions
 
-    def calculate_metrics(self, metrics=['accuracy', 'precision', 'recall', 'f1', 'report']):
+    def calculate_metrics(self, metrics=('accuracy', 'precision', 'recall', 'f1', 'report'), avg="macro"):
         """
         Calculates specified metrics for each classifier's stored predictions.
 
@@ -208,11 +208,13 @@ class MLPipeline:
             if 'accuracy' in metrics:
                 clf_metrics['accuracy'] = accuracy_score(self.predictions["GT"], clf_predictions)
             if 'precision' in metrics:
-                clf_metrics['precision'] = precision_score(self.predictions["GT"], clf_predictions, average='macro')
+                clf_metrics['precision'] = precision_score(self.predictions["GT"], clf_predictions, average=avg)
             if 'recall' in metrics:
-                clf_metrics['recall'] = recall_score(self.predictions["GT"], clf_predictions, average='macro')
+                clf_metrics['recall'] = recall_score(self.predictions["GT"], clf_predictions, average=avg)
             if 'f1' in metrics:
-                clf_metrics['f1'] = f1_score(self.predictions["GT"], clf_predictions, average='macro')
+                clf_metrics['f1'] = f1_score(self.predictions["GT"], clf_predictions, average=avg)
+            if 'kappa' in metrics:
+                clf_metrics["kappa"] = cohen_kappa_score(self.predictions["GT"], clf_predictions)
             if 'report' in metrics:
                 report =  classification_report(self.predictions["GT"], clf_predictions)
             results[clf_name] = clf_metrics
