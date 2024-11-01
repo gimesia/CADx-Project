@@ -7,10 +7,11 @@ import cv2
 from scipy.stats import skew, kurtosis
 from utils.utils import norm
 
+TH = 0.05
 
 # Base FeatureExtractor class (Strategy Pattern)
 class FeatureExtractor:
-    def __init__(self, name: str, threshold: float = 0.01, color_space=None):
+    def __init__(self, name: str, threshold: float = TH, color_space=None):
         self.name = name
         self.threshold = threshold
         self.color_space = color_space
@@ -96,7 +97,7 @@ class MeanExtractor(FeatureExtractor):
 
 
 class StdExtractor(FeatureExtractor):
-    def __init__(self, color_space='rgb', threshold=0.1):
+    def __init__(self, color_space='rgb', threshold=TH):
         super().__init__(name="std", threshold=threshold)
         self.color_space = color_space
 
@@ -180,7 +181,7 @@ class GradientExtractor(FeatureExtractor):
 
 
 class LBPExtractor(FeatureExtractor):
-    def __init__(self, radius=1, n_points=8, threshold=0.1):
+    def __init__(self, radius=1, n_points=8, threshold=TH):
         super().__init__(name="lbp", threshold=threshold)
         self.radius = radius
         self.n_points = n_points
@@ -217,7 +218,7 @@ class LBPExtractor(FeatureExtractor):
 
 
 class GaborExtractor(FeatureExtractor):
-    def __init__(self, num_orientations=8, num_scales=4, threshold=0.1):
+    def __init__(self, num_orientations=8, num_scales=4, threshold=TH):
         super().__init__(name="gabor", threshold=threshold)
         self.num_orientations = num_orientations
         self.num_scales = num_scales
@@ -246,7 +247,7 @@ class GaborExtractor(FeatureExtractor):
 class GLCMExtractor(FeatureExtractor):
     def __init__(self, distances=[1], angles=[0],
                  properties=['contrast', 'dissimilarity', 'homogeneity', 'energy', 'correlation', 'ASM'],
-                 threshold=0.1):
+                 threshold=TH):
         super().__init__(name="glcm", threshold=threshold)
         self.distances = distances
         self.angles = angles
@@ -294,7 +295,7 @@ class GLCMExtractor(FeatureExtractor):
         return feature_names
 
 class ColorMomentsExtractor(FeatureExtractor):
-    def __init__(self, color_space='rgb', threshold=0.1):
+    def __init__(self, color_space='rgb', threshold=TH):
         super().__init__(name="color_moments", threshold=threshold)
         self.color_space = color_space
 
