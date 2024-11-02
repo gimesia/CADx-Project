@@ -4,6 +4,7 @@ from skimage.color import rgb2gray
 from torch.utils.data import DataLoader
 from skimage.feature import local_binary_pattern, graycomatrix, graycoprops
 import cv2
+import pywt
 from scipy.stats import skew, kurtosis, iqr, entropy
 from utils.utils import norm
 
@@ -428,6 +429,42 @@ class LaplacianOfGaussianExtractor(FeatureExtractor):
     def get_feature_name(self) -> list:
         return [f"{self.name}_sigma{self.sigma}_mean", f"{self.name}_sigma{self.sigma}_std"]
 
+
+class WaveletTransformExtractor(FeatureExtractor):
+    def __init__(self, wavelet='haar', level=2, threshold=TH):
+        super().__init__(name="wavelet_transform", threshold=threshold)
+        self.wavelet = wavelet
+        self.level = level
+
+    def extract(self, image: np.ndarray) -> np.ndarray:
+        # Convert to grayscale if image is colored
+        image = self.convert_color_space(image)
+        masked_image = self.apply_threshold_mask(image)
+
+        # Apply wavelet decomposition
+        coeffs = pywt.wavedec2(masked_image, self.wavelet, level=self.level)
+        features = []
+        for coeff in coeffs:
+            if isinstance(coeff, tuple):
+                for subband in coeff:
+                    features.append(np.nanmean(subband))
+                    features.append(np.nanstd(subband))
+            else:
+                features.append(np.nanmean(coeff))
+                features.append(np.nanstd(coeff))
+
+        return np.array(features)
+
+    def get_feature_name(self) -> list:
+        feature_names = []
+        levels = ['approx', 'horizontal', 'vertical', 'diagonal']
+        for lvl in range(self.level + 1):
+            for l in levels:
+                feature_names.extend([
+                    f"{self.name}_{self.wavelet}_L{lvl}_{l}_mean",
+                    f"{self.name}_{self.wavelet}_L{lvl}_{l}_std"
+                ])
+        return feature_names
 
 
 # Feature extraction pipeline
