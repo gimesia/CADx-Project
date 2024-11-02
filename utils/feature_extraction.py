@@ -385,6 +385,27 @@ class ColorMomentsExtractor(FeatureExtractor):
 
         return feature_names
 
+class FourierTransformExtractor(FeatureExtractor):
+    def __init__(self, threshold=TH):
+        super().__init__(name="fourier_transform", threshold=threshold)
+
+    def extract(self, image: np.ndarray) -> np.ndarray:
+        image = self.convert_color_space(image)
+        masked_image = self.apply_threshold_mask(image)
+
+        # Compute the Fourier transform
+        f_transform = np.fft.fft2(masked_image)
+        f_shift = np.fft.fftshift(f_transform)
+        magnitude_spectrum = np.abs(f_shift)
+
+        # Calculate mean and standard deviation of the magnitude spectrum
+        mean_val = np.nanmean(magnitude_spectrum)
+        std_val = np.nanstd(magnitude_spectrum)
+        return np.array([mean_val, std_val])
+
+    def get_feature_name(self) -> list:
+        return [f"{self.name}_magnitude_mean", f"{self.name}_magnitude_std"]
+
 # Feature extraction pipeline
 class FeatureExtractionStrategy:
     def __init__(self):
