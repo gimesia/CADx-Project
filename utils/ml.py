@@ -33,6 +33,7 @@ class MLPipeline:
         self.predictions = {}
         self.top_features_per_classifier = {} # Dictionary to store the top 10 features for each classifier
         self.batch_size = batch_size
+        self.pca = None # Control PCA application
         self.verbose = verbose  # Control logging verbosity
 
         if self.verbose:
@@ -114,7 +115,11 @@ class MLPipeline:
             if self.verbose:
                 logger.info(f"Fitting classifier: {classifier_key}")
 
-            clf.fit(self.feature_matrix, self.labels)
+            if self.pca is not None:
+                pca_matrix = self.pca.fit_transform(self.feature_matrix)
+                clf.fit(pca_matrix, self.labels)
+            else:
+                clf.fit(self.feature_matrix, self.labels)
             self.fitted_classifiers[classifier_key] = clf
 
             # Check if the classifier has feature importances
@@ -176,6 +181,9 @@ class MLPipeline:
         new_feature_matrix, new_labels = self.feature_strategy.run(new_loader.get_loader())
 
         new_feature_matrix = np.nan_to_num(new_feature_matrix) # Impute nans
+
+        if self.pca is not None:
+            new_feature_matrix = self.pca.transform(new_feature_matrix)
 
         # Store predictions in the class attribute
         self.predictions = {"GT": new_labels, }
