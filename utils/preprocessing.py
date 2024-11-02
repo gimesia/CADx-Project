@@ -1,6 +1,9 @@
 import numpy as np
 import torch
 import cv2
+from skimage.color import rgb2gray
+
+from utils.utils import norm
 
 
 # Define the base class for preprocessing steps
@@ -72,15 +75,58 @@ class Smoothing(PreprocessingStep):
         return {"name": "smoothing", "kernel_size": self.kernel_size}
 
 
+def create_tilted_structuring_elements(width, height, n):
+    if width % 2 == 0 or height % 2 == 0:
+        raise ValueError("Structuring element dimensions must be odd.")
+
+    base = np.zeros((width, width), dtype=np.uint8)
+    for k in range(width // 2 - height // 2, width // 2 + height // 2 + 1):
+        base = cv2.line(base, (0, k), (width, k), 255)
+
+    SEs = [base]
+    angle_step = 180.0 / n
+    for k in range(1, n):
+        M = cv2.getRotationMatrix2D((base.shape[1] / 2.0, base.shape[0] / 2.0), k * angle_step, 1.0)
+        SE = cv2.warpAffine(base, M, (width, width), flags=cv2.INTER_NEAREST)
+        SEs.append(SE)
+
+    return SEs
+
+
 class HairRemoval(PreprocessingStep):
+    def __init__(self, kernel_size=3, directions=8, length=3):
+        self.kernel_size = kernel_size
+        self.directions = directions
+        self.length = length
+
     def apply(self, image: np.ndarray) -> np.ndarray:
-        gray_image = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
-        _, binary_mask = cv2.threshold(gray_image, 10, 255, cv2.THRESH_BINARY_INV)
-        inpainted_image = cv2.inpaint(image, binary_mask, 3, cv2.INPAINT_TELEA)
-        return inpainted_image
+        img = norm(image, np.uint8)
+        img_gray = norm(rgb2gray(img), np.uint8)
+
+        SEs = create_tilted_structuring_elements(self.length, 1, self.directions)
+        sum_blackhats = np.zeros(img_gray.shape, np.uint16)
+
+        for i, SE in enumerate(SEs):
+            blackhat = cv2.morphologyEx(img_gray, cv2.MORPH_BLACKHAT, SE)
+            sum_blackhats = cv2.add(sum_blackhats, blackhat.astype(np.uint16))
+
+        sum_blackhats = cv2.normalize(sum_blackhats, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+
+        _, thresholded = cv2.threshold(sum_blackhats, 0, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)
+
+        thresholded = cv2.dilate(
+            thresholded,
+            cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (self.kernel_size, self.kernel_size))
+        )
+        result = cv2.inpaint(img, thresholded, 5, cv2.INPAINT_TELEA)
+
+        return result
 
     def get_step_params(self):
-        return {"name": "hair_removal"}
+        return {"name": "hair_removal",
+                "kernel_size": self.kernel_size,
+                "directions": self.directions,
+                "length": self.length}
 
 
 class Resize(PreprocessingStep):
