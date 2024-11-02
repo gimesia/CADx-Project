@@ -4,7 +4,7 @@ from skimage.color import rgb2gray
 from torch.utils.data import DataLoader
 from skimage.feature import local_binary_pattern, graycomatrix, graycoprops
 import cv2
-from scipy.stats import skew, kurtosis
+from scipy.stats import skew, kurtosis, iqr, entropy
 from utils.utils import norm
 
 TH = 0.05
@@ -37,7 +37,7 @@ class FeatureExtractor:
                                 conversion.get(self.color_space, None)) if self.color_space in conversion else image
         return image
 
-    def apply_threshold_mask(self, image: np.ndarray, nan=False) -> np.ndarray:
+    def apply_threshold_mask(self, image: np.ndarray, fill_nan=True) -> np.ndarray:
         """Applies a binary threshold mask if a significant portion of the image is black (background)."""
         if image.ndim == 3 and image.shape[0] == 3:
             image = np.transpose(image, (1, 2, 0))  # Transpose to HWC format
@@ -71,7 +71,7 @@ class FeatureExtractor:
             # Apply mask to the image (only works with matching sizes and types)
             masked_image = image.copy()
 
-            masked_image[mask == 0] = np.nan if nan else 0
+            masked_image[mask == 0] = np.nan if fill_nan else 0
 
             return masked_image
         else:
@@ -217,6 +217,44 @@ class LBPExtractor(FeatureExtractor):
         return [f"{self.name}_rad{self.radius}_bins{self.n_points}_{i}" for i in range(self.n_points + 2)]
 
 
+class MultiScaleLBPExtractor(FeatureExtractor):
+    def __init__(self, scales=((8, 1), (16, 2), (24, 3)), threshold=TH):
+        super().__init__(name="multiscale_lbp", threshold=threshold)
+        self.scales = scales
+
+    def extract(self, image: np.ndarray) -> np.ndarray:
+        if image.ndim == 3 and image.shape[0] == 3:
+            image = np.transpose(image, (1, 2, 0))  # Transpose to HWC format
+
+        if image.ndim == 3 and image.shape[-1] == 3:
+            image = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
+
+        # Apply the threshold-based mask
+        masked_image = self.apply_threshold_mask(image)
+
+        # Replace masked regions with zeros (or another constant)
+        masked_image[masked_image == 0] = np.nan  # Handle NaNs as invalid areas TODO!
+
+        masked_image = norm(masked_image, np.uint8)
+
+        # Compute LBP histograms for each scale and concatenate them
+        histograms = []
+        for n_points, radius in self.scales:
+            lbp = local_binary_pattern(np.nan_to_num(masked_image), n_points, radius, method='uniform')
+            hist, _ = np.histogram(lbp.ravel(), bins=np.arange(0, n_points + 3), range=(0, n_points + 2))
+            hist = hist.astype("float")
+            hist /= (hist.sum() + 1e-6)  # Normalize histogram
+            histograms.extend(hist)  # Append to overall feature vector
+
+        return np.array(histograms)
+
+    def get_feature_name(self) -> list:
+        feature_names = []
+        for n_points, radius in self.scales:
+            feature_names.extend([f"{self.name}_rad{radius}_bins{n_points}_{i}" for i in range(n_points + 2)])
+        return feature_names
+
+
 class GaborExtractor(FeatureExtractor):
     def __init__(self, num_orientations=8, num_scales=4, threshold=TH):
         super().__init__(name="gabor", threshold=threshold)
@@ -294,10 +332,11 @@ class GLCMExtractor(FeatureExtractor):
                     feature_names.append(f"{self.name}_{prop}_dist_{dist}_angle_{angle}")
         return feature_names
 
+
 class ColorMomentsExtractor(FeatureExtractor):
     def __init__(self, color_space='rgb', threshold=TH):
         super().__init__(name="color_moments", threshold=threshold)
-        self.color_space = color_space
+        self.color_space = color_space.lower()
 
     def extract(self, image: np.ndarray) -> np.ndarray:
         # Ensure the image is in HWC format if it's in CHW
@@ -310,28 +349,42 @@ class ColorMomentsExtractor(FeatureExtractor):
         # Apply the threshold-based mask
         masked_image = self.apply_threshold_mask(image)
 
-        # Compute the mean, standard deviation, and skewness for each channel
+        # Compute additional color moments for each channel
         color_moments = []
         for i in range(masked_image.shape[-1]):  # Iterate over each color channel
             channel = masked_image[:, :, i]
-            mean_val = np.nanmean(channel)       # Mean
-            std_val = np.nanstd(channel)         # Standard deviation
-            skew_val = skew(channel.flatten(), nan_policy='omit')  # Skewness
-            kurtosis_val = kurtosis(channel.flatten(), nan_policy='omit') # Kurtosis
+            mean_val = np.nanmean(channel)
+            std_val = np.nanstd(channel)
+            skew_val = skew(channel.flatten(), nan_policy='omit')
+            kurtosis_val = kurtosis(channel.flatten(), nan_policy='omit')
+            median_val = np.nanmedian(channel)
+            var_val = np.nanvar(channel)
+            min_val = np.nanmin(channel)
+            max_val = np.nanmax(channel)
+            iqr_val = iqr(channel.flatten(), nan_policy='omit')
+            entropy_val = entropy(np.histogram(channel, bins=256)[0] + 1e-6)
 
-            color_moments.extend([mean_val, std_val, skew_val, kurtosis_val])
+            color_moments.extend([mean_val, std_val, skew_val, kurtosis_val,
+                                  median_val, var_val, min_val, max_val, iqr_val, entropy_val])
 
         return np.array(color_moments)
 
     def get_feature_name(self) -> list:
-        # Feature names for mean, standard deviation, and skewness of each color channel
-        feature_names = []
-        for i in range(3):  # Assuming 3 color channels (RGB or other)
-            feature_names.extend([f"{self.name}_{self.color_space}_channel_{i}_mean",
-                                  f"{self.name}_{self.color_space}_channel_{i}_std",
-                                  f"{self.name}_{self.color_space}_channel_{i}_skew"])
+        # Define channel names based on the color space
+        channel_names = ['Channel1', 'Channel2', 'Channel3']
+        if self.color_space == 'rgb':
+            channel_names = ['R', 'G', 'B']
+        elif self.color_space == 'hsv':
+            channel_names = ['H', 'S', 'V']
+        elif self.color_space == 'lab':
+            channel_names = ['L', 'A', 'B']
+
+        # Moments
+        moments = ["mean", "std", "skew", "kurtosis", "median", "var", "min", "max", "iqr", "entropy"]
+        feature_names = [f"{self.name}_{self.color_space}_{ch}_{moment}" for ch in channel_names for moment in moments]
+
         return feature_names
-    
+
 # Feature extraction pipeline
 class FeatureExtractionStrategy:
     def __init__(self):
