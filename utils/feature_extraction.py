@@ -406,6 +406,30 @@ class FourierTransformExtractor(FeatureExtractor):
     def get_feature_name(self) -> list:
         return [f"{self.name}_magnitude_mean", f"{self.name}_magnitude_std"]
 
+
+class LaplacianOfGaussianExtractor(FeatureExtractor):
+    def __init__(self, sigma=1.0, threshold=TH):
+        super().__init__(name="laplacian_of_gaussian", threshold=threshold)
+        self.sigma = sigma
+
+    def extract(self, image: np.ndarray) -> np.ndarray:
+        image = self.convert_color_space(image)
+        masked_image = self.apply_threshold_mask(image)
+
+        # Apply Gaussian blur and then Laplacian
+        blurred_image = cv2.GaussianBlur(masked_image, (0, 0), self.sigma)
+        log_image = cv2.Laplacian(blurred_image, cv2.CV_64F)
+
+        # Calculate mean and standard deviation of the LoG image
+        mean_val = np.nanmean(log_image)
+        std_val = np.nanstd(log_image)
+        return np.array([mean_val, std_val])
+
+    def get_feature_name(self) -> list:
+        return [f"{self.name}_sigma{self.sigma}_mean", f"{self.name}_sigma{self.sigma}_std"]
+
+
+
 # Feature extraction pipeline
 class FeatureExtractionStrategy:
     def __init__(self):
