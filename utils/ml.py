@@ -228,16 +228,14 @@ class MLPipeline:
             if 'report' in metrics:
                 try:
                     report =  classification_report(self.predictions["GT"], clf_predictions)
+                    if self.verbose:
+                        logger.info("Classification report \n%s ", report)
                 except Exception as e:
                     print(e)
             results[clf_name] = clf_metrics
 
             if self.verbose:
                 logger.info("Metrics for classifier %s: %s", clf_name, clf_metrics)
-                try:
-                    logger.info("Classification report \n%s ", report)
-                except Exception as e:
-                    print(e)
 
         return results
 
