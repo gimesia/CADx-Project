@@ -2,7 +2,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import numpy as np
-from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, classification_report
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, classification_report, cohen_kappa_score
 import logging
 import pandas as pd
 from sklearn.base import ClassifierMixin
@@ -31,7 +31,9 @@ class MLPipeline:
         self.is_extracted = False
         self.fitted_classifiers = {}
         self.predictions = {}
+        self.top_features_per_classifier = {} # Dictionary to store the top 10 features for each classifier
         self.batch_size = batch_size
+        self.pca = None # Control PCA application
         self.verbose = verbose  # Control logging verbosity
 
         if self.verbose:
@@ -87,9 +89,9 @@ class MLPipeline:
     def optional_pca(self, feature_type="lbp", n_components=5):
         if not self.is_extracted:
             raise RuntimeError("Features must be extracted before applying PCA.")
-        
+
         self.apply_pca_to_features(feature_type=feature_type, n_components=n_components)
-        
+
     def fit_classifiers(self):
         """
         Fits all classifiers on the extracted features using the labels obtained from the loader.
@@ -103,9 +105,6 @@ class MLPipeline:
 
         start_time = time.time()  # Start timing
 
-        # Dictionary to store the top 10 features for each classifier
-        self.top_features_per_classifier = {}
-
         for i, clf in enumerate(self.classifiers):
             start = time.time()
 
@@ -116,20 +115,26 @@ class MLPipeline:
             if self.verbose:
                 logger.info(f"Fitting classifier: {classifier_key}")
 
-            clf.fit(self.feature_matrix, self.labels)
+            if self.pca is not None:
+                pca_matrix = self.pca.fit_transform(self.feature_matrix)
+                clf.fit(pca_matrix, self.labels)
+            else:
+                clf.fit(self.feature_matrix, self.labels)
             self.fitted_classifiers[classifier_key] = clf
 
             # Check if the classifier has feature importances
             if hasattr(clf, "feature_importances_"):
-                print("yessss")
-                # Get feature importances and select the top 10
-                importances = clf.feature_importances_
-                top_indices = np.argsort(importances)[-10:][::-1]  # Get indices of top 10 features
-                top_features = [(self.get_feature_names()[index], importances[index]) for index in top_indices]
-                self.top_features_per_classifier[classifier_key] = top_features
+                try:
+                    # Get feature importances and select the top 10
+                    importances = clf.feature_importances_
+                    top_indices = np.argsort(importances)[-10:][::-1]  # Get indices of top 10 features
+                    top_features = [(self.get_feature_names()[index], importances[index]) for index in top_indices]
+                    self.top_features_per_classifier[classifier_key] = top_features
 
-                if self.verbose:
-                    logger.info(f"Top 10 features for {classifier_key}: {top_features}")
+                    if self.verbose:
+                        logger.info(f"Top 10 features for {classifier_key}: {top_features}")
+                except Exception as e:
+                    print(e)
 
             fit_duration = time.time() - start
             if self.verbose:
@@ -143,14 +148,16 @@ class MLPipeline:
         """
         Returns the top 10 most relevant features for each classifier that supports feature importances.
         """
+        try:
+            if not hasattr(self, 'top_features_per_classifier'):
+                raise RuntimeError("Top features have not been calculated. Run 'fit_classifiers' first.")
 
-        if not hasattr(self, 'top_features_per_classifier'):
-            raise RuntimeError("Top features have not been calculated. Run 'fit_classifiers' first.")
-
-        for clf_name, top_features in self.top_features_per_classifier.items():
-            print(f"\nTop 10 features for {clf_name}:")
-            for feature, importance in top_features:
-                print(f"{feature}: {importance:.4f}")
+            for clf_name, top_features in self.top_features_per_classifier.items():
+                print(f"\nTop 10 features for {clf_name}:")
+                for feature, importance in top_features:
+                    print(f"{feature}: {importance:.4f}")
+        except Exception as e:
+            print(e)
 
     def predict_with_classifiers(self, new_dataset_path, percentage=100):
         """
@@ -175,6 +182,9 @@ class MLPipeline:
 
         new_feature_matrix = np.nan_to_num(new_feature_matrix) # Impute nans
 
+        if self.pca is not None:
+            new_feature_matrix = self.pca.transform(new_feature_matrix)
+
         # Store predictions in the class attribute
         self.predictions = {"GT": new_labels, }
         for clf_name, clf in self.fitted_classifiers.items():
@@ -185,7 +195,7 @@ class MLPipeline:
 
         return self.predictions
 
-    def calculate_metrics(self, metrics=['accuracy', 'precision', 'recall', 'f1', 'report']):
+    def calculate_metrics(self, metrics=('accuracy', 'precision', 'recall', 'f1', 'kappa'), avg="macro"):
         """
         Calculates specified metrics for each classifier's stored predictions.
 
@@ -208,18 +218,24 @@ class MLPipeline:
             if 'accuracy' in metrics:
                 clf_metrics['accuracy'] = accuracy_score(self.predictions["GT"], clf_predictions)
             if 'precision' in metrics:
-                clf_metrics['precision'] = precision_score(self.predictions["GT"], clf_predictions, average='macro')
+                clf_metrics['precision'] = precision_score(self.predictions["GT"], clf_predictions, average=avg)
             if 'recall' in metrics:
-                clf_metrics['recall'] = recall_score(self.predictions["GT"], clf_predictions, average='macro')
+                clf_metrics['recall'] = recall_score(self.predictions["GT"], clf_predictions, average=avg)
             if 'f1' in metrics:
-                clf_metrics['f1'] = f1_score(self.predictions["GT"], clf_predictions, average='macro')
+                clf_metrics['f1'] = f1_score(self.predictions["GT"], clf_predictions, average=avg)
+            if 'kappa' in metrics:
+                clf_metrics["kappa"] = cohen_kappa_score(self.predictions["GT"], clf_predictions)
             if 'report' in metrics:
-                report =  classification_report(self.predictions["GT"], clf_predictions)
+                try:
+                    report =  classification_report(self.predictions["GT"], clf_predictions)
+                    if self.verbose:
+                        logger.info("Classification report \n%s ", report)
+                except Exception as e:
+                    print(e)
             results[clf_name] = clf_metrics
 
             if self.verbose:
                 logger.info("Metrics for classifier %s: %s", clf_name, clf_metrics)
-                logger.info("Classification report \n%s ", report)
 
         return results
 

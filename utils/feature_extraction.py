@@ -4,13 +4,15 @@ from skimage.color import rgb2gray
 from torch.utils.data import DataLoader
 from skimage.feature import local_binary_pattern, graycomatrix, graycoprops
 import cv2
-from scipy.stats import skew
+import pywt
+from scipy.stats import skew, kurtosis, iqr, entropy
 from utils.utils import norm
 
+TH = 0.1
 
 # Base FeatureExtractor class (Strategy Pattern)
 class FeatureExtractor:
-    def __init__(self, name: str, threshold: float = 0.01, color_space=None):
+    def __init__(self, name: str, threshold: float = TH, color_space=None):
         self.name = name
         self.threshold = threshold
         self.color_space = color_space
@@ -36,7 +38,7 @@ class FeatureExtractor:
                                 conversion.get(self.color_space, None)) if self.color_space in conversion else image
         return image
 
-    def apply_threshold_mask(self, image: np.ndarray, nan=False) -> np.ndarray:
+    def apply_threshold_mask(self, image: np.ndarray, fill_nan=True) -> np.ndarray:
         """Applies a binary threshold mask if a significant portion of the image is black (background)."""
         if image.ndim == 3 and image.shape[0] == 3:
             image = np.transpose(image, (1, 2, 0))  # Transpose to HWC format
@@ -70,7 +72,7 @@ class FeatureExtractor:
             # Apply mask to the image (only works with matching sizes and types)
             masked_image = image.copy()
 
-            masked_image[mask == 0] = np.nan if nan else 0
+            masked_image[mask == 0] = np.nan if fill_nan else 0
 
             return masked_image
         else:
@@ -96,7 +98,7 @@ class MeanExtractor(FeatureExtractor):
 
 
 class StdExtractor(FeatureExtractor):
-    def __init__(self, color_space='rgb', threshold=0.1):
+    def __init__(self, color_space='rgb', threshold=TH):
         super().__init__(name="std", threshold=threshold)
         self.color_space = color_space
 
@@ -180,17 +182,16 @@ class GradientExtractor(FeatureExtractor):
 
 
 class LBPExtractor(FeatureExtractor):
-    def __init__(self, radius=1, n_points=8, threshold=0.1):
-        super().__init__(name="lbp", threshold=threshold)
+    def __init__(self, radius=1, n_points=8, threshold=TH):
+        super().__init__(name="lbp", threshold=threshold, color_space="gray")
         self.radius = radius
         self.n_points = n_points
 
     def extract(self, image: np.ndarray) -> np.ndarray:
         if image.ndim == 3 and image.shape[0] == 3:
             image = np.transpose(image, (1, 2, 0))  # Transpose to HWC format
-
         if image.ndim == 3 and image.shape[-1] == 3:
-            image = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
+            image = self.convert_color_space(image)
 
         # Apply the threshold-based mask
         masked_image = self.apply_threshold_mask(image)
@@ -216,9 +217,45 @@ class LBPExtractor(FeatureExtractor):
         return [f"{self.name}_rad{self.radius}_bins{self.n_points}_{i}" for i in range(self.n_points + 2)]
 
 
+class MultiScaleLBPExtractor(FeatureExtractor):
+    def __init__(self, scales=((8, 1), (16, 2), (24, 3)), threshold=TH):
+        super().__init__(name="multiscale_lbp", threshold=threshold, color_space="gray")
+        self.scales = scales
+
+    def extract(self, image: np.ndarray) -> np.ndarray:
+        if image.ndim == 3 and image.shape[0] == 3:
+            image = np.transpose(image, (1, 2, 0))  # Transpose to HWC format
+        if image.ndim == 3 and image.shape[-1] == 3:
+            image = self.convert_color_space(image)
+
+        # Apply the threshold-based mask
+        masked_image = self.apply_threshold_mask(image)
+
+        # Replace masked regions with zeros (or another constant)
+        masked_image[masked_image == 0] = np.nan  # Handle NaNs as invalid areas TODO!
+        masked_image = norm(masked_image, np.uint8)
+
+        # Compute LBP histograms for each scale and concatenate them
+        histograms = []
+        for n_points, radius in self.scales:
+            lbp = local_binary_pattern(np.nan_to_num(masked_image), n_points, radius, method='uniform')
+            hist, _ = np.histogram(lbp.ravel(), bins=np.arange(0, n_points + 3), range=(0, n_points + 2))
+            hist = hist.astype("float")
+            hist /= (hist.sum() + 1e-6)  # Normalize histogram
+            histograms.extend(hist)  # Append to overall feature vector
+
+        return np.array(histograms)
+
+    def get_feature_name(self) -> list:
+        feature_names = []
+        for n_points, radius in self.scales:
+            feature_names.extend([f"{self.name}_rad{radius}_bins{n_points}_{i}" for i in range(n_points + 2)])
+        return feature_names
+
+
 class GaborExtractor(FeatureExtractor):
-    def __init__(self, num_orientations=8, num_scales=4, threshold=0.1):
-        super().__init__(name="gabor", threshold=threshold)
+    def __init__(self, num_orientations=8, num_scales=4, threshold=TH):
+        super().__init__(name="gabor", threshold=threshold, color_space="gray")
         self.num_orientations = num_orientations
         self.num_scales = num_scales
 
@@ -227,7 +264,7 @@ class GaborExtractor(FeatureExtractor):
             image = np.transpose(image, (1, 2, 0))  # Convert to HWC
 
         if image.ndim == 3 and image.shape[-1] == 3:
-            image = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)  # Convert to grayscale
+            image = self.convert_color_space(image)  # Convert to grayscale
 
         # Apply Gabor filters
         filtered_images = []
@@ -246,8 +283,8 @@ class GaborExtractor(FeatureExtractor):
 class GLCMExtractor(FeatureExtractor):
     def __init__(self, distances=[1], angles=[0],
                  properties=['contrast', 'dissimilarity', 'homogeneity', 'energy', 'correlation', 'ASM'],
-                 threshold=0.1):
-        super().__init__(name="glcm", threshold=threshold)
+                 threshold=TH):
+        super().__init__(name="glcm", threshold=threshold, color_space="gray")
         self.distances = distances
         self.angles = angles
         self.properties = properties
@@ -256,9 +293,8 @@ class GLCMExtractor(FeatureExtractor):
         # Convert to grayscale if the image has multiple channels
         if image.ndim == 3 and image.shape[0] == 3:
             image = np.transpose(image, (1, 2, 0))  # Convert to HWC format
-
         if image.ndim == 3 and image.shape[-1] == 3:
-            image = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
+            image = self.convert_color_space(image)
 
         # Apply threshold mask
         masked_image = self.apply_threshold_mask(image)
@@ -293,10 +329,11 @@ class GLCMExtractor(FeatureExtractor):
                     feature_names.append(f"{self.name}_{prop}_dist_{dist}_angle_{angle}")
         return feature_names
 
+
 class ColorMomentsExtractor(FeatureExtractor):
-    def __init__(self, color_space='rgb', threshold=0.1):
+    def __init__(self, color_space='rgb', threshold=TH):
         super().__init__(name="color_moments", threshold=threshold)
-        self.color_space = color_space
+        self.color_space = color_space.lower()
 
     def extract(self, image: np.ndarray) -> np.ndarray:
         # Ensure the image is in HWC format if it's in CHW
@@ -309,27 +346,143 @@ class ColorMomentsExtractor(FeatureExtractor):
         # Apply the threshold-based mask
         masked_image = self.apply_threshold_mask(image)
 
-        # Compute the mean, standard deviation, and skewness for each channel
+        # Compute additional color moments for each channel
         color_moments = []
         for i in range(masked_image.shape[-1]):  # Iterate over each color channel
             channel = masked_image[:, :, i]
-            mean_val = np.nanmean(channel)       # Mean
-            std_val = np.nanstd(channel)         # Standard deviation
-            skew_val = skew(channel.flatten(), nan_policy='omit')  # Skewness
+            mean_val = np.nanmean(channel)
+            std_val = np.nanstd(channel)
+            skew_val = skew(channel.flatten(), nan_policy='omit')
+            kurtosis_val = kurtosis(channel.flatten(), nan_policy='omit')
+            median_val = np.nanmedian(channel)
+            var_val = np.nanvar(channel)
+            min_val = np.nanmin(channel)
+            max_val = np.nanmax(channel)
+            iqr_val = iqr(channel.flatten(), nan_policy='omit')
+            entropy_val = entropy(np.histogram(np.nan_to_num(channel), bins=256)[0] + 1e-6)
 
-            color_moments.extend([mean_val, std_val, skew_val])
+            color_moments.extend([mean_val, std_val, skew_val, kurtosis_val,
+                                  median_val, var_val, min_val, max_val, iqr_val, entropy_val])
 
         return np.array(color_moments)
 
     def get_feature_name(self) -> list:
-        # Feature names for mean, standard deviation, and skewness of each color channel
-        feature_names = []
-        for i in range(3):  # Assuming 3 color channels (RGB or other)
-            feature_names.extend([f"{self.name}_{self.color_space}_channel_{i}_mean",
-                                  f"{self.name}_{self.color_space}_channel_{i}_std",
-                                  f"{self.name}_{self.color_space}_channel_{i}_skew"])
+        # Define channel names based on the color space
+        channel_names = ['Channel1', 'Channel2', 'Channel3']
+        if self.color_space == 'rgb':
+            channel_names = ['R', 'G', 'B']
+        elif self.color_space == 'hsv':
+            channel_names = ['H', 'S', 'V']
+        elif self.color_space == 'lab':
+            channel_names = ['L', 'A', 'B']
+
+        # Moments
+        moments = ["mean", "std", "skew", "kurtosis", "median", "var", "min", "max", "iqr", "entropy"]
+        feature_names = [f"{self.name}_{self.color_space}_{ch}_{moment}" for ch in channel_names for moment in moments]
+
         return feature_names
-    
+
+class FourierTransformExtractor(FeatureExtractor):
+    def __init__(self, threshold=TH):
+        super().__init__(name="fourier_transform", threshold=threshold, color_space="gray")
+
+    def extract(self, image: np.ndarray) -> np.ndarray:
+        # Ensure the image is in HWC format if it's in CHW
+        if image.ndim == 3 and image.shape[0] == 3:
+            image = np.transpose(image, (1, 2, 0))  # Convert to HWC format
+        if image.ndim == 3:
+            image = self.convert_color_space(image)
+
+        masked_image = self.apply_threshold_mask(image)
+        masked_image = np.nan_to_num(masked_image)
+        masked_image = norm(masked_image, np.float32)
+
+        # Compute the Fourier transform
+        f_transform = np.fft.fft2(masked_image)
+        f_shift = np.fft.fftshift(f_transform)
+        magnitude_spectrum = np.abs(f_shift)
+
+        # Calculate mean and standard deviation of the magnitude spectrum
+        mean_val = np.nanmean(magnitude_spectrum)
+        std_val = np.nanstd(magnitude_spectrum)
+        return np.array([mean_val, std_val])
+
+    def get_feature_name(self) -> list:
+        return [f"{self.name}_magnitude_mean", f"{self.name}_magnitude_std"]
+
+
+class LaplacianOfGaussianExtractor(FeatureExtractor):
+    def __init__(self, sigma=1.0, threshold=TH):
+        super().__init__(name="laplacian_of_gaussian", threshold=threshold, color_space="gray")
+        self.sigma = sigma
+
+    def extract(self, image: np.ndarray) -> np.ndarray:
+        # Ensure the image is in HWC format if it's in CHW
+        if image.ndim == 3 and image.shape[0] == 3:
+            image = np.transpose(image, (1, 2, 0))  # Convert to HWC format
+        if image.ndim == 3:
+            image = self.convert_color_space(image)
+
+        masked_image = self.apply_threshold_mask(image)
+        masked_image = np.nan_to_num(masked_image)
+        masked_image = norm(masked_image, np.float32)
+
+        # Apply Gaussian blur and then Laplacian
+        blurred_image = cv2.GaussianBlur(masked_image, (0, 0), self.sigma)
+        log_image = cv2.Laplacian(blurred_image, cv2.CV_64F)
+
+        # Calculate mean and standard deviation of the LoG image
+        mean_val = np.nanmean(log_image)
+        std_val = np.nanstd(log_image)
+        return np.array([mean_val, std_val])
+
+    def get_feature_name(self) -> list:
+        return [f"{self.name}_sigma{self.sigma}_mean", f"{self.name}_sigma{self.sigma}_std"]
+
+
+class WaveletTransformExtractor(FeatureExtractor):
+    def __init__(self, wavelet='haar', level=2, threshold=TH):
+        super().__init__(name="wavelet_transform", threshold=threshold, color_space="gray")
+        self.wavelet = wavelet
+        self.level = level
+
+    def extract(self, image: np.ndarray) -> np.ndarray:
+        # Ensure the image is in HWC format if it's in CHW
+        if image.ndim == 3 and image.shape[0] == 3:
+            image = np.transpose(image, (1, 2, 0))  # Convert to HWC format
+        if image.ndim == 3:
+            image = self.convert_color_space(image)
+
+        masked_image = self.apply_threshold_mask(image)
+        masked_image = np.nan_to_num(masked_image)
+        masked_image = norm(masked_image, np.float32)
+
+        # Apply wavelet decomposition
+        coeffs = pywt.wavedec2(masked_image, self.wavelet, level=self.level)
+        features = []
+        for coeff in coeffs:
+            if isinstance(coeff, tuple):
+                for subband in coeff:
+                    features.append(np.nanmean(subband))
+                    features.append(np.nanstd(subband))
+            else:
+                features.append(np.nanmean(coeff))
+                features.append(np.nanstd(coeff))
+
+        return np.array(features)
+
+    def get_feature_name(self) -> list:
+        feature_names = []
+        levels = ['approx', 'horizontal', 'vertical', 'diagonal']
+        for lvl in range(self.level + 1):
+            for l in levels:
+                feature_names.extend([
+                    f"{self.name}_{self.wavelet}_L{lvl}_{l}_mean",
+                    f"{self.name}_{self.wavelet}_L{lvl}_{l}_std"
+                ])
+        return feature_names
+
+
 # Feature extraction pipeline
 class FeatureExtractionStrategy:
     def __init__(self):
