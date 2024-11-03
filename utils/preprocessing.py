@@ -225,8 +225,8 @@ class PreprocessingFactory:
     def gaussian_smoothing(self, kernel_size=5):
         self.steps.append(Smoothing(kernel_size=kernel_size))
 
-    def hair_removal(self):
-        self.steps.append(HairRemoval())
+    def hair_removal(self, kernel_size=3, directions=8, length=3):
+        self.steps.append(HairRemoval(kernel_size, directions, length))
 
     def resize(self, target_size=(224, 224)):
         self.steps.append(Resize(target_size=target_size))
