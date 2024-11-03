@@ -78,25 +78,24 @@ class FeatureExtractor:
         else:
             return image
 
-
 class GradientExtractor(FeatureExtractor):
     def __init__(self, threshold=0.1):
-        super().__init__(name="gradient", threshold=threshold)
+        super().__init__(name="gradient", threshold=threshold, color_space="gray")
 
     def extract(self, image: np.ndarray) -> np.ndarray:
         # Convert to grayscale if image has multiple channels
         if image.ndim == 3 and image.shape[0] == 3:
             image = np.transpose(image, (1, 2, 0))  # Convert to HWC format
 
-        if image.ndim == 3 and image.shape[-1] == 3:
-            gray = rgb2gray(image)
-        elif image.ndim == 2:
-            gray = image
+        if image.ndim == 3:
+            image = self.convert_color_space(image)
+        elif image.ndim == 1:
+            image = image
         else:
-            print(image.ndim)
-            raise ValueError("Unexpected number of channels")
+            raise ValueError(f"Unexpected number of channels: {image.ndim}")
 
-        masked_image = self.apply_threshold_mask(gray)
+        masked_image = self.apply_threshold_mask(image)
+        masked_image = np.nan_to_num(masked_image)
 
         grad_x = cv2.Sobel(masked_image, cv2.CV_64F, 1, 0, ksize=5)
         grad_y = cv2.Sobel(masked_image, cv2.CV_64F, 0, 1, ksize=5)
@@ -110,7 +109,6 @@ class GradientExtractor(FeatureExtractor):
     def get_feature_name(self) -> list:
         return [f"{self.name}_magnitude_mean", f"{self.name}_magnitude_std",
                 f"{self.name}_direction_mean", f"{self.name}_direction_std"]
-
 
 class LBPExtractor(FeatureExtractor):
     def __init__(self, radius=1, n_points=8, threshold=TH):
