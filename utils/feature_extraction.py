@@ -386,10 +386,61 @@ def compute_log_magnitude_stats(magnitude_spectrum):
     return log_mean, log_variance
 
 
+def compute_low_high_frequency_energy(magnitude_spectrum, cutoff_ratio=0.1):
+    rows, cols = np.array(magnitude_spectrum).shape
+    crow, ccol = rows // 2, cols // 2  # Center of the spectrum
+    cutoff_radius = int(min(rows, cols) * cutoff_ratio)
+
+    # Create a mask for low frequencies
+    low_freq_mask = np.zeros(magnitude_spectrum.shape, dtype=np.uint8)
+    cv2.circle(low_freq_mask, (ccol, crow), cutoff_radius, 1, -1)
+
+    low_freq_energy = np.sum(magnitude_spectrum * low_freq_mask) / magnitude_spectrum.size
+    high_freq_energy = np.sum(magnitude_spectrum * (1 - low_freq_mask)) / magnitude_spectrum.size
+
+    return low_freq_energy, high_freq_energy
+
+
+def compute_radial_mean_variance(magnitude_spectrum):
+    rows, cols = np.array(magnitude_spectrum).shape
+    crow, ccol = rows // 2, cols // 2
+    max_radius = int(np.hypot(crow, ccol))
+
+    radial_means = []
+    radial_variances = []
+    for r in range(max_radius):
+        # Create a mask for the current radius
+        y, x = np.ogrid[:rows, :cols]
+        mask = (x - ccol) ** 2 + (y - crow) ** 2 <= r ** 2
+
+        # Calculate mean and variance within this radius
+        ring_values = magnitude_spectrum[mask]
+        radial_means.append(np.mean(ring_values))
+        radial_variances.append(np.var(ring_values))
+
+    return radial_means, radial_variances
+
+
+def compute_magnitude_entropy(magnitude_spectrum):
+    # Normalize the magnitude spectrum to form a probability distribution
+    magnitude_spectrum_norm = magnitude_spectrum / np.sum(magnitude_spectrum)
+    magnitude_entropy = entropy(magnitude_spectrum_norm.flatten())
+    return magnitude_entropy
+
+
+def compute_log_magnitude_stats(magnitude_spectrum):
+    log_magnitude_spectrum = np.log1p(magnitude_spectrum)  # Use log(1 + magnitude) to handle zero values
+    log_mean = np.mean(log_magnitude_spectrum)
+    log_variance = np.var(log_magnitude_spectrum)
+    return log_mean, log_variance
+
+
 class FFTExtractor(FeatureExtractor):
     def __init__(self, threshold=TH, cutoff_ratio=0.1):
         super().__init__(name="fft", threshold=threshold, color_space="gray")
         self.cutoff_ratio = cutoff_ratio
+        self.radial_means_length = None
+        self.radial_variances_length = None
 
     def extract(self, image: np.ndarray) -> np.ndarray:
         # Ensure the image is in HWC format if it's in CHW
@@ -417,31 +468,39 @@ class FFTExtractor(FeatureExtractor):
         radial_means, radial_variances = compute_radial_mean_variance(magnitude_spectrum)
         features.extend(radial_means + radial_variances)
 
-        # 4. Entropy of Magnitude Spectrum
+        # Store lengths for feature naming
+        self.radial_means_length = len(radial_means)
+        self.radial_variances_length = len(radial_variances)
+
+        # 3. Entropy of Magnitude Spectrum
         magnitude_entropy = compute_magnitude_entropy(magnitude_spectrum)
         features.append(magnitude_entropy)
 
-        # 5. Log-Magnitude Spectrum Mean and Variance
+        # 4. Log-Magnitude Spectrum Mean and Variance
         log_mean, log_variance = compute_log_magnitude_stats(magnitude_spectrum)
         features.extend([log_mean, log_variance])
 
         return np.array(features)
 
     def get_feature_name(self) -> list:
+        # Use stored lengths of radial means and variances if available
+        if self.radial_means_length is None or self.radial_variances_length is None:
+            raise ValueError(
+                "Feature dimensions for radial means and variances are not set. Extract features from an image first.")
+
         feature_names = [
             "low_freq_energy", "high_freq_energy"
         ]
 
         # Add names for radial mean and variance
-        feature_names.extend([f"radial_mean_{i}" for i in range(len(compute_radial_mean_variance([0])[0]))])
-        feature_names.extend([f"radial_variance_{i}" for i in range(len(compute_radial_mean_variance([0])[1]))])
+        feature_names.extend([f"radial_mean_{i}" for i in range(self.radial_means_length)])
+        feature_names.extend([f"radial_variance_{i}" for i in range(self.radial_variances_length)])
 
         # Add names for entropy and log-magnitude stats
         feature_names.append("magnitude_entropy")
         feature_names.extend(["log_magnitude_mean", "log_magnitude_variance"])
 
         return [f"{self.name}_{name}" for name in feature_names]
-
 
 
 class LaplacianOfGaussianExtractor(FeatureExtractor):
