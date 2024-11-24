@@ -3,16 +3,28 @@ from torchvision import datasets, transforms
 from torch.utils.data import DataLoader
 
 
+class ImageFolderWIthPaths(datasets.ImageFolder):
+
+    def __getitem__(self, index):
+
+        image, label = super(ImageFolderWIthPaths, self).__getitem__(index)
+
+        path = self.samples[index][0]
+
+        return image, label, path
+
+
 def get_data_loaders(train_dir, val_dir, batch_size):
 
-    normalize = transforms.Normalize(
-        mean = [0.485, 0.456, 0.406],
-        std = [0.229, 0.224, 0.225]
-    )
 
     train_transform = transforms.Compose([
-        transforms.RandomResizedCrop(224),
-        transforms.RandomHorizontalFlip(),
+        
+        
+        transforms.RandomHorizontalFlip(p=0.5),
+        transforms.RandomVerticalFlip(p=0.5),
+        transforms.RandomAffine(degrees=0, shear = 10),
+        transforms.RandomResizedCrop(224), #Up might limit the effect of subsequent spatial trans
+        transforms.ColorJitter(brightness=0.1, contrast = 0.1, saturation = 0.1),
         transforms.ToTensor(),
         transforms.Normalize(
         mean = [0.485, 0.456, 0.406],
@@ -34,8 +46,8 @@ def get_data_loaders(train_dir, val_dir, batch_size):
     ])
 
     #Load data from folders
-    train_dataset = datasets.ImageFolder(train_dir, transform = train_transform)
-    val_dataset = datasets.ImageFolder(val_dir, transform = test_transform)
+    train_dataset = ImageFolderWIthPaths(train_dir, transform = train_transform)
+    val_dataset = ImageFolderWIthPaths(val_dir, transform = test_transform)
 
     #Dataloaders for datasets
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle = True)
