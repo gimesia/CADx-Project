@@ -31,7 +31,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, num_epoch
         model.train()
         running_loss = 0.0
 
-        for inputs, labels in train_loader:
+        for inputs, labels, _  in train_loader:
             inputs, labels = inputs.to(device), labels.to(device)
             #Zero the parameter gradients
 
