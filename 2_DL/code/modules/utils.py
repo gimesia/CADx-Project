@@ -1,4 +1,5 @@
 import torch
+import matplotlib.pyplot as plt
 
 
 def calculate_accuracy(model, data_loader, device):
@@ -8,7 +9,7 @@ def calculate_accuracy(model, data_loader, device):
     total = 0
 
     with torch.no_grad():
-        for inputs, labels in data_loader:
+        for inputs, labels, _ in data_loader:
             inputs = inputs.to(device)
             labels = labels.to(device)
 
