@@ -59,12 +59,10 @@ factory.normalize2float()
 factory.resize((224, 224))
 
 # Create data loaders
-PERCENT = 10
+PERCENT = 100
 BATCH_SIZE = 32
-train = FactoryLoader(TRAIN_PATH, batch_size=BATCH_SIZE, factory=factory, percentage=PERCENT, shuffle=True)
-val = FactoryLoader(VAL_PATH, batch_size=BATCH_SIZE, factory=factory, percentage=PERCENT, shuffle=True)
-train_loader = train.get_loader()
-val_loader = val.get_loader()
+train_loader = FactoryLoader(TRAIN_PATH, batch_size=BATCH_SIZE, factory=factory, percentage=PERCENT, shuffle=True)
+val_loader = FactoryLoader(VAL_PATH, batch_size=BATCH_SIZE, factory=factory, percentage=PERCENT, shuffle=True)
 
 # Create model, optimizer and loss function
 model = SkinLesionCNN()
@@ -78,7 +76,7 @@ dl.save_path
 
 # val.show_images(80)
 # Train pipeline
-dl.train(epochs=10)
+dl.train(epochs=20)
 
 # Evaluate pipeline
 print(dl.evaluate())

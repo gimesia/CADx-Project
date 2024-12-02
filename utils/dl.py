@@ -1,3 +1,4 @@
+import copy
 import datetime
 import json
 import os
@@ -17,8 +18,11 @@ from utils.preprocessing import PreprocessingFactory
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+# Verbose mode toggle
+VERBOSE = True
+
 # Validation iteration
-def _validate(model, loader, loss_function, device, verbose=False):
+def _validate(model, loader, loss_function, device, verbose=VERBOSE):
     model.eval()
     val_loss = 0.0
     with torch.no_grad():
@@ -39,15 +43,15 @@ def _validate(model, loader, loss_function, device, verbose=False):
             outputs_ = np.round(outputs_, decimals=0)
 
             if verbose:
-                print(f"Labels: {labels_.squeeze()}")
-                print(f"Predictions: {outputs_.squeeze()}")
-                print(f"Hits: {(np.sum(outputs_ * labels_).astype(int))}/{len(labels_)}")
+                # print(f"Labels: {labels_.squeeze()}")
+                # print(f"Predictions: {outputs_.squeeze()}")
+                print(f"Hits: {(np.sum(outputs_ == labels_).astype(int))}/{len(labels_)}")
                 print(f"Loss: {loss.item()}")
 
     return val_loss / len(loader)
 
 # Training iteration
-def _train(model, loader, optimizer, loss_function, device, verbose=False):
+def _train(model, loader, optimizer, loss_function, device, verbose=VERBOSE):
     model.train()
     running_loss = 0.0
     for i, (images, labels) in enumerate(loader):
@@ -66,9 +70,9 @@ def _train(model, loader, optimizer, loss_function, device, verbose=False):
         outputs_ = np.round(outputs_, decimals=0)
 
         if verbose:
-            print(f"Labels: {labels_.squeeze()}")
-            print(f"Predictions: {outputs_.squeeze()}")
-            print(f"Hits: {np.sum(outputs_ * labels_).astype(int)}/{len(labels_)}")
+            # print(f"Labels: {labels_.squeeze()}")
+            # print(f"Predictions: {outputs_.squeeze()}")
+            print(f"Hits: {np.sum(outputs_ == labels_).astype(int)}/{len(labels_)}")
             print(f"Loss: {loss.item()}")
 
         loss.backward()
@@ -95,6 +99,7 @@ class DLPipeline:
         self.name = name
         self.training_losses = []
         self.validation_losses = []
+        self.early_stop_counter = 0
         self.preprocessing_steps = train_loader.get_transformation_steps()
 
         current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -118,10 +123,20 @@ class DLPipeline:
             logger.info(f'[VALIDATE] Epoch {epoch + 1}/{epochs} Loss: {val_loss}')
 
             if val_loss < self.best_model['loss']:
-                self.best_model['model'] = self.model
-                self.best_model['loss'] = val_loss
+                self.best_model['model'] = copy.deepcopy(self.model) # Ensure that changes on this var. won't effect this var.
+                self.best_model['loss'] = copy.deepcopy(val_loss) # Ensure that changes on this var. won't effect this var.
                 self.save_model()
+                self.early_stop_counter = 0
                 logger.info(f'[SAVE] Best model saved with loss: {val_loss}')
+            else:
+                self.early_stop_counter += 1
+                logger.info(f'[EARLY STOP] Counter: {self.early_stop_counter}')
+                if self.early_stop_counter == 5:
+                    logger.info('[EARLY STOP] Stopping training...')
+                    break
+
+            self.plot_losses(save=True, show=False)
+            self.plot_roc_auc(save=True, show=False)
 
     def evaluate(self):
         self.model.eval()
@@ -141,7 +156,7 @@ class DLPipeline:
         report = classification_report(all_labels, all_predictions, target_names=['Class 0', 'Class 1'])
         return report
 
-    def plot_losses(self, save=True):
+    def plot_losses(self, save=True, show=True):
         plt.plot(self.training_losses, label='Training Loss')
         plt.plot(self.validation_losses, label='Validation Loss')
         plt.legend()
@@ -150,9 +165,10 @@ class DLPipeline:
         plt.ylabel('Loss')
         if save:
             plt.savefig(os.path.join(self.save_path, 'losses.png'))
-        plt.show()
+        if show:
+            plt.show()
 
-    def plot_roc_auc(self, save=True):
+    def plot_roc_auc(self, save=True, show=True):
         self.model.eval()
         all_labels = []
         all_predictions = []
@@ -179,7 +195,8 @@ class DLPipeline:
         plt.legend(loc='lower right')
         if save:
             plt.savefig(os.path.join(self.save_path, 'roc_auc.png'))
-        plt.show()
+        if show:
+            plt.show()
 
     def save_hyperparameters(self):
         hyperparameters = {
