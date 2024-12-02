@@ -1,6 +1,7 @@
 import os
 from torchvision import datasets, transforms
 from torch.utils.data import DataLoader
+from torch.utils.data import Subset
 
 
 class ImageFolderWIthPaths(datasets.ImageFolder):
@@ -14,8 +15,8 @@ class ImageFolderWIthPaths(datasets.ImageFolder):
         return image, label, path
 
 
-def get_data_loaders(train_dir, val_dir, batch_size):
-
+def get_data_loaders(train_dir, val_dir, batch_size, subset_percentage = 1.0):
+    
 
     train_transform = transforms.Compose([
         
@@ -23,7 +24,8 @@ def get_data_loaders(train_dir, val_dir, batch_size):
         transforms.RandomHorizontalFlip(p=0.5),
         transforms.RandomVerticalFlip(p=0.5),
         transforms.RandomAffine(degrees=0, shear = 10),
-        transforms.RandomResizedCrop(224), #Up might limit the effect of subsequent spatial trans
+        transforms.Resize((224,224)),
+        #transforms.RandomResizedCrop(224), #Up might limit the effect of subsequent spatial trans
         transforms.ColorJitter(brightness=0.1, contrast = 0.1, saturation = 0.1),
         transforms.ToTensor(),
         transforms.Normalize(
@@ -34,8 +36,7 @@ def get_data_loaders(train_dir, val_dir, batch_size):
     ])
 
     test_transform = transforms.Compose([
-        transforms.Resize(256),
-        transforms.CenterCrop(224),
+        transforms.Resize((224,224)),
         transforms.ToTensor(),
         #Normalize images with statistis from the pre-trained dataset
         transforms.Normalize( #Normalization operates on tensors and not PIL images
