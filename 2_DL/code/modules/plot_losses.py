@@ -7,7 +7,7 @@ def plot_losses(train_losses, val_losses):
 
     plt.figure(figsize=(8,6))
     plt.plot(epochs, train_losses, 'b-', label = 'Training Loss')
-    plt.plot(epochs, val_losses, 'r-', label = 'Training Loss')
+    plt.plot(epochs, val_losses, 'r-', label = 'Validation Loss')
 
     plt.title('Training and Validation Loss over Epochs')
     plt.xlabel('Epochs')
