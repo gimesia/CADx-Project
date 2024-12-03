@@ -54,8 +54,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
             correct_train += (preds == labels).sum().item()
             total_train += labels.size(0)
 
-        if scheduler:
-            scheduler.step()
+
 
         #Average loss from all the batches
         epoch_loss = running_loss / len(train_loader.dataset) # avg loss bc of batches
@@ -85,6 +84,9 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
         val_losses.append(epoch_val_loss)
         val_accuracy = correct_val / total_val
 
+        if scheduler:
+            scheduler.step(epoch_val_loss)
+            
         print(f"Epoch {epoch + 1} / {num_epochs}",
               f"Training Loss: {epoch_loss:.4f}",
               f"Training Accuracy: {train_accuracy:.4f}",
