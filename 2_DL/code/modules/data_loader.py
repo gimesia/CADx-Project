@@ -19,13 +19,15 @@ def get_data_loaders(train_dir, val_dir, batch_size, subset_percentage = 1.0):
     
 
     train_transform = transforms.Compose([
+
+
         
-        
-        #transforms.RandomHorizontalFlip(p=0.5),
-        #transforms.RandomVerticalFlip(p=0.5),
+        #LOOK FOR THE BEST AUGMENTATIONS TO USE
+        transforms.RandomHorizontalFlip(p=0.5),
+        transforms.RandomVerticalFlip(p=0.5),
+        transforms.ColorJitter(brightness=0.2, contrast = 0.1, saturation = 0.1),
         transforms.Resize((224,224)),
         #transforms.RandomResizedCrop(224), #Up might limit the effect of subsequent spatial trans
-        #transforms.ColorJitter(brightness=0.1, contrast = 0.1, saturation = 0.1),
         transforms.ToTensor(),
         transforms.Normalize(
         mean = [0.485, 0.456, 0.406],
