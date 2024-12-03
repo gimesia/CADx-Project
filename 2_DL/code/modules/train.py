@@ -85,8 +85,8 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
         val_accuracy = correct_val / total_val
 
         if scheduler:
-            scheduler.step(epoch_val_loss)
-            
+            scheduler.step()
+
         print(f"Epoch {epoch + 1} / {num_epochs}",
               f"Training Loss: {epoch_loss:.4f}",
               f"Training Accuracy: {train_accuracy:.4f}",
