@@ -14,9 +14,10 @@ class SkinLesionClassifier(nn.Module):
         #self.model.fc = nn.Linear(self.model.fc.in_features, num_classes)
 
         self.model.fc = nn.Sequential(
+
             nn.Linear(self.model.fc.in_features, 512),
             nn.ReLU(),
-            nn.Dropout(0.3),
+            nn.Dropout(0.5),
             nn.Linear(512, num_classes)
         )
     
