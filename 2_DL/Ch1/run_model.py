@@ -49,8 +49,10 @@ class SkinLesionCNN(nn.Module):
 # Dataset path
 
 
+# Dataset path
 TRAIN_PATH = r"C:\Users\gimes\Src\repos\CADx-Project\dataset\binary\train"
 VAL_PATH = r"C:\Users\gimes\Src\repos\CADx-Project\dataset\binary\val"
+
 
 # Create preprocessing factory
 factory = PreprocessingFactory()
@@ -59,7 +61,7 @@ factory.normalize2float()
 factory.resize((224, 224))
 
 # Create data loaders
-PERCENT = 100
+PERCENT = 3
 BATCH_SIZE = 32
 train_loader = FactoryLoader(TRAIN_PATH, batch_size=BATCH_SIZE, factory=factory, percentage=PERCENT, shuffle=True)
 val_loader = FactoryLoader(VAL_PATH, batch_size=BATCH_SIZE, factory=factory, percentage=PERCENT, shuffle=True)
@@ -72,7 +74,6 @@ criterion = nn.BCELoss()
 # Create pipeline
 dl = DLPipeline(model, optimizer, criterion, train_loader, val_loader, "CustomCNN")
 
-dl.save_path
 
 # val.show_images(80)
 # Train pipeline
