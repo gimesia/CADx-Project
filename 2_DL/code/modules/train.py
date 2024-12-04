@@ -3,10 +3,10 @@
 import torch
 import torch.optim as optim
 import torch.nn as nn
+from modules.utils import set_seed
 
 
-
-def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler, num_epochs, device):
+def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler, num_epochs, device, seed = 42):
 
     """
         Args:
@@ -21,7 +21,8 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
         Returns:
             Trained model.
     """
-        
+    set_seed(seed)
+
     model.to(device)
     
     #Store losses
