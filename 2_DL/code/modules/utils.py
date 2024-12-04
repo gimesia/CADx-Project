@@ -1,6 +1,7 @@
 import torch
 import matplotlib.pyplot as plt
-
+import random
+import numpy as np
 
 def calculate_accuracy(model, data_loader, device):
 
@@ -22,3 +23,12 @@ def calculate_accuracy(model, data_loader, device):
     accuracy = (100 * correct) / total
 
     return accuracy
+
+
+def set_seed(seed):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.backends.cudnn.deterministic = True #What is cudnn?
+    torch.backends.cudnn.benchmark = False
