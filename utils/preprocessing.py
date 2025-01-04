@@ -210,6 +210,19 @@ class FloatNormalize(PreprocessingStep):
     def get_step_params(self):
         return {"name": "01_norm"}
 
+class ZScoreNormalize(PreprocessingStep):
+    def __init__(self):
+        pass
+
+    def apply(self, image: np.ndarray) -> np.ndarray:
+        mean = np.mean(image, axis=(0, 1), keepdims=True)
+        std = np.std(image, axis=(0, 1), keepdims=True)
+        std[std == 0] = 1  # Avoid division by zero
+        return (image - mean) / std
+
+    def get_step_params(self):
+        return {"name": "zscore_norm"}
+
 # Factory class to add and manage preprocessing steps
 class PreprocessingFactory:
     def __init__(self):
@@ -236,6 +249,9 @@ class PreprocessingFactory:
 
     def normalize2float(self):
         self.steps.append(FloatNormalize())
+
+    def zscore_normalize(self):
+        self.steps.append(ZScoreNormalize())
 
     def clahe(self, clip_limit = 2.0, tile_grid_size=(8,8)):
         self.steps.append(CLAHE(clip_limit=clip_limit, tile_grid_size=tile_grid_size))
