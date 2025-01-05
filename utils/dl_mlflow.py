@@ -10,6 +10,7 @@ import mlflow
 import numpy as np
 import matplotlib.pyplot as plt
 from mlflow.models import infer_signature
+from openpyxl.styles.builtins import output
 from sklearn.metrics import classification_report, roc_curve, auc, confusion_matrix
 
 from utils.loader import FactoryLoader
@@ -31,7 +32,7 @@ logger = logging.getLogger(__name__)
 VERBOSE = True
 
 # Validation iteration
-def _validate(model, loader, loss_function, device, verbose=VERBOSE):
+def _validate(model, loader, loss_function, device, logits=False, verbose=VERBOSE):
     model.eval()
     val_loss = 0.0
     all_preds = []
@@ -44,18 +45,20 @@ def _validate(model, loader, loss_function, device, verbose=VERBOSE):
             labels = labels.to(device).float().unsqueeze(1)
 
             outputs = model(images)
+            if logits:
+                outputs = torch.sigmoid(outputs)
 
             loss = loss_function(outputs, labels)
             val_loss += loss.item()
 
-            outputs_ = outputs.cpu().detach().numpy()
-            labels_ = labels.cpu().detach().numpy()
-
-            outputs_ = np.round(outputs_, decimals=0)
-
             if verbose:
-                # print(f"Labels: {labels_.squeeze()}")
-                # print(f"Predictions: {outputs_.squeeze()}")
+                outputs_ = outputs.cpu().detach().numpy()
+                outputs_ = np.round(outputs_, decimals=0)
+                labels_ = labels.cpu().detach().numpy()
+
+                print(f"Labels: {labels_.squeeze()}")
+                print(f"Predictions: {outputs_.squeeze()}")
+
                 print(f"Hits: {(np.sum(outputs_ == labels_).astype(int))}/{len(labels_)}")
                 print(f"Loss: {loss.item()}")
             all_labels.extend(list(labels_))
@@ -65,7 +68,7 @@ def _validate(model, loader, loss_function, device, verbose=VERBOSE):
 
 
 # Training iteration
-def _train(model, loader, optimizer, loss_function, device, verbose=VERBOSE):
+def _train(model, loader, optimizer, loss_function, device, logits=False, verbose=VERBOSE):
     model.train()
     running_loss = 0.0
     for i, (images, labels) in enumerate(loader):
@@ -76,16 +79,19 @@ def _train(model, loader, optimizer, loss_function, device, verbose=VERBOSE):
 
         optimizer.zero_grad()
         outputs = model(images)
+        if logits:
+            outputs = torch.sigmoid(outputs)
+
         loss = loss_function(outputs, labels)
 
-        outputs_ = outputs.cpu().detach().numpy()
-        labels_ = labels.cpu().detach().numpy()
-
-        outputs_ = np.round(outputs_, decimals=0)
-
         if verbose:
-            # print(f"Labels: {labels_.squeeze()}")
-            # print(f"Predictions: {outputs_.squeeze()}")
+            outputs_ = outputs.cpu().detach().numpy()
+            outputs_ = np.round(outputs_, decimals=0)
+            labels_ = labels.cpu().detach().numpy()
+
+            print(f"Labels: {labels_.squeeze()}")
+            print(f"Predictions: {outputs_.squeeze()}")
+
             print(f"Hits: {np.sum(outputs_ == labels_).astype(int)}/{len(labels_)}")
             print(f"Loss: {loss.item()}")
 
@@ -99,7 +105,7 @@ def _train(model, loader, optimizer, loss_function, device, verbose=VERBOSE):
 class MLFlowDLPipeline:
     def __init__(self, model, optimizer, loss_function,
                  train_loader: FactoryLoader, val_loader: FactoryLoader, name=None,
-                 challenge="Ch1", patience=5):
+                 challenge="Ch1", patience=5, logits=False):
         self.challenge = challenge
         self.name = name
 
@@ -108,6 +114,7 @@ class MLFlowDLPipeline:
         self.model = self.model.to(self.device)
 
         self.optimizer = optimizer
+        self.logits = logits
         self.loss_function = loss_function
 
         self.train_loader = train_loader.get_loader()
@@ -160,13 +167,15 @@ class MLFlowDLPipeline:
             for epoch in range(epochs):
                 # Train
                 logger.info(f'[EPOCH] {epoch + 1}/{epochs}')
-                train_loss = _train(self.model, self.train_loader, self.optimizer, self.loss_function, self.device)
+                train_loss = _train(self.model, self.train_loader, self.optimizer, self.loss_function, self.device,
+                                    logits=self.logits)
                 self.training_losses.append(train_loss)
                 logger.info(f'[TRAIN] Epoch {epoch + 1}/{epochs} Loss: {train_loss}')
                 mlflow.log_metric("loss_training", train_loss, step=epoch)
 
                 # Validate
-                val_loss, report = _validate(self.model, self.val_loader, self.loss_function, self.device)
+                val_loss, report = _validate(self.model, self.val_loader, self.loss_function, self.device,
+                                             logits=self.logits)
                 self.validation_losses.append(val_loss)
                 logger.info(f'[VALIDATE] Epoch {epoch + 1}/{epochs} Loss: {val_loss}')
                 mlflow.log_metric("loss_validation", val_loss, step=epoch)
@@ -228,7 +237,7 @@ class MLFlowDLPipeline:
                 images = images.to(self.device)
                 labels = labels.to(self.device)
                 outputs = self.model(images)
-                predicted = torch.round(outputs)
+                predicted = torch.sigmoid(outputs) if self.logits else torch.round(outputs)
                 all_labels.extend(labels.cpu().numpy())
                 all_predictions.extend(predicted.cpu().numpy())
 

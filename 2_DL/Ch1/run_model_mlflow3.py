@@ -33,41 +33,47 @@ factory.resize((224, 224))
 
 # Create data loaders
 PERCENT = 100
+# for i in [24,32,48]:
+# print("CURRENT BATCH SIZE: ", i)
+# print("-----------------------------------")
 BATCH_SIZE = 32
 train_loader = FactoryLoader(TRAIN_PATH, batch_size=BATCH_SIZE, factory=factory, percentage=PERCENT, shuffle=True)
 val_loader = FactoryLoader(VAL_PATH, batch_size=BATCH_SIZE, factory=factory, percentage=PERCENT, shuffle=True)
 
 # %%
 # Create model, optimizer and loss function
-model = efficientnet_v2_m(weights=EfficientNet_V2_M_Weights)
-# # Freeze the feature extractor
-# for param in model.features.parameters():
-#     param.requires_grad = False
-
+model = resnet101(weights=ResNet101_Weights)
 model
 
 # %%
-model.features
-# %%
 # print(model.classifier)
-num_features = model.classifier[1].in_features  # Get the number of input features to the classifier
-model.classifier[1] = nn.Sequential(
-    nn.Linear(num_features,1),
-    nn.Sigmoid()
-)
+num_features = model.fc.in_features
+model.fc = torch.nn.Linear(num_features, 1)
+
+for param in model.parameters():
+    param.requires_grad = False
+
+for param in model.layer4.parameters():
+    param.requires_grad = True
+
+for param in model.fc.parameters():
+    param.requires_grad = True
+model
+
 # print(model.classifier)
-model.classifier
+model
+
 # %%
 optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
-criterion = nn.BCELoss()
+criterion = nn.BCEWithLogitsLoss()
 
 # Create pipeline
-dl = MLFlowDLPipeline(model, optimizer, criterion, train_loader, val_loader, "EfficientNet_V2_M")
+dl = MLFlowDLPipeline(model, optimizer, criterion, train_loader, val_loader, "ResNet101", logits=True)
 
 
 # val.show_images(80)
 # Train pipeline
-dl.train(epochs=50)
+dl.train(epochs=20)
 
 # Evaluate pipeline
 print(dl.evaluate())
