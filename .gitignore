@@ -1,0 +1,12 @@
+# Default ignored files
+/shelf/
+/.idea/*
+
+# Datasets
+/dataset/binary/*
+/dataset/multiclass/*
+
+/virtual_env
+__pycache__
+
+dl_env_f/
