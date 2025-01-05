@@ -1,18 +1,21 @@
 import os
 import torch
 from torchvision import datasets, transforms
-from torch.utils.data import DataLoader, Subset
+from torch.utils.data import DataLoader
+from torch.utils.data import Subset
 from sklearn.model_selection import StratifiedShuffleSplit
 import numpy as np
 
 
 class ImageFolderWIthPaths(datasets.ImageFolder):
-    # Custom dataset class to include image paths
+
     def __getitem__(self, index):
-        original_tuple = super().__getitem__(index)
-        path = self.imgs[index][0]
-        tuple_with_path = (original_tuple + (path,))
-        return tuple_with_path
+
+        image, label = super(ImageFolderWIthPaths, self).__getitem__(index)
+
+        path = self.samples[index][0]
+
+        return image, label, path
 
 def get_data_loaders(train_dir, val_dir, batch_size, seed=42):
     g = torch.Generator()
@@ -31,17 +34,19 @@ def get_data_loaders(train_dir, val_dir, batch_size, seed=42):
 
     # Step 4: Define transforms AFTER splitting
     train_transform = transforms.Compose([
-        transforms.Resize((300, 300)),
         transforms.RandomHorizontalFlip(p=0.5),
         transforms.RandomVerticalFlip(p=0.5),
-        transforms.RandomAffine(degrees=0, shear=10),
-        transforms.ColorJitter(brightness=0.1, contrast=0.1, saturation=0.1),
+        transforms.ColorJitter(brightness=0.2, contrast=0.1, saturation=0.1),
+        transforms.RandomAffine(degrees=15, translate=(0.1, 0.1), scale=(0.9, 1.1), shear=10),
+        transforms.RandomResizedCrop(size = 224, scale = (0.8, 1.0)),
+        transforms.GaussianBlur(kernel_size = (3,3), sigma = (0.1, 2.0)),
         transforms.ToTensor(),
+        transforms.RandomErasing(p=0.5, scale=(0.02, 0.2), ratio=(0.3, 3.3)),
         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
     ])
 
     valid_test_transform = transforms.Compose([
-        transforms.Resize((300, 300)),
+        transforms.Resize((224, 224)),
         transforms.ToTensor(),
         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
     ])
@@ -66,37 +71,27 @@ def get_data_loaders(train_dir, val_dir, batch_size, seed=42):
 
     return train_loader, val_loader, test_loader
 
-def get_data_loader_test(test_dir, batch_size, seed=42):
-    """
-    Load the real test set with resizing, tensor conversion, and normalization.
-    
-    Args:
-        test_dir (str): Directory containing the test images.
-        batch_size (int): Batch size for the DataLoader.
-        seed (int): Random seed for reproducibility.
-
-    Returns:
-        DataLoader: A PyTorch DataLoader for the test dataset.
-    """
-    # Set the random seed for reproducibility
+def get_data_loader_test(test_dir, batch_size, seed = 42):
     g = torch.Generator()
     g.manual_seed(seed)
     
-    # Define transformations for the test dataset
+
     test_transform = transforms.Compose([
-        transforms.Resize((300, 300)),  # Resize to 300x300
-        transforms.ToTensor(),         # Convert to PyTorch tensor
-        transforms.Normalize(          # Normalize with ImageNet stats
-            mean=[0.485, 0.456, 0.406],
-            std=[0.229, 0.224, 0.225]
-        )
+        transforms.Resize((224,224)),
+        transforms.ToTensor(),
+        #Normalize images with statistis from the pre-trained dataset
+        transforms.Normalize( #Normalization operates on tensors and not PIL images
+        mean = [0.485, 0.456, 0.406],
+        std = [0.229, 0.224, 0.225]
+    )
+        
     ])
 
-    # Load test dataset
-    test_dataset = ImageFolderWIthPaths(test_dir, transform=test_transform)
+    #Load data from folders
+    test_dataset = ImageFolderWIthPaths(test_dir, transform = test_transform)
 
-    # Create DataLoader for the test dataset
-    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, generator=g)
+    #Dataloaders for datasets
+    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle = False, generator = g)
 
-    print(f"Test set size: {len(test_dataset)}")
     return test_loader
+
