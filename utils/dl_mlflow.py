@@ -9,20 +9,10 @@ import torch
 import mlflow
 import numpy as np
 import matplotlib.pyplot as plt
-from mlflow.models import infer_signature
-from openpyxl.styles.builtins import output
 from sklearn.metrics import classification_report, roc_curve, auc, confusion_matrix
 
+from utils.ModelWrapper import ModelWrapper
 from utils.loader import FactoryLoader
-
-
-class ModelWrapper:
-    def __init__(self, model):
-        self.model = model
-
-    def predict(self, input_data):
-        # Ensure this method matches your model's prediction interface
-        return self.model(input_data)
 
 
 # Configure logging
@@ -81,6 +71,7 @@ def _train(model, loader, optimizer, loss_function, device, logits=False, verbos
         outputs = model(images)
         if logits:
             outputs = torch.sigmoid(outputs)
+        # print(outputs)
 
         loss = loss_function(outputs, labels)
 
