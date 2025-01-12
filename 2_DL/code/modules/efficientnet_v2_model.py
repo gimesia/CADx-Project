@@ -11,17 +11,17 @@ class SkinLesionClassifier_EfficientNetV2M(nn.Module):
 
         # Freeze all layers initially
         for param in self.model.parameters():
-            param.requires_grad = False
+            param.requires_grad = True
 
         # Unfreeze the specified number of layers from the end of the backbone
-        layers_to_unfreeze = []
-        for name, module in self.model.features.named_children():
-            layers_to_unfreeze.append(module)
+        #layers_to_unfreeze = []
+        #for name, module in self.model.features.named_children():
+        #    layers_to_unfreeze.append(module)
 
         # Unfreeze the last `num_unfrozen_layers`
-        for module in layers_to_unfreeze[-num_unfrozen_layers:]:
-            for param in module.parameters():
-                param.requires_grad = True
+        # for module in layers_to_unfreeze[-num_unfrozen_layers:]:
+        #     for param in module.parameters():
+        #         param.requires_grad = True
 
         # Replace the classifier head for binary classification
         in_features = self.model.classifier[1].in_features
@@ -29,12 +29,12 @@ class SkinLesionClassifier_EfficientNetV2M(nn.Module):
             nn.Linear(in_features, 1024),
             nn.BatchNorm1d(1024),
             nn.ReLU(inplace=True),
-            nn.Dropout(0.6),
+            nn.Dropout(0.4),
 
             nn.Linear(1024, 512),
             nn.BatchNorm1d(512),
             nn.ReLU(inplace=True),
-            nn.Dropout(0.6),
+            nn.Dropout(0.3),
 
             nn.Linear(512, num_classes)
         )
