@@ -7,12 +7,12 @@ import numpy as np
 
 
 class ImageFolderWIthPaths(datasets.ImageFolder):
-
+    # Custom dataset class to include image paths
     def __getitem__(self, index):
-        image, label = super(ImageFolderWIthPaths, self).__getitem__(index)
-        path = self.samples[index][0]
-        return image, label, path
-
+        original_tuple = super().__getitem__(index)
+        path = self.imgs[index][0]
+        tuple_with_path = (original_tuple + (path,))
+        return tuple_with_path
 
 def get_data_loaders(train_dir, val_dir, batch_size, seed=42):
     g = torch.Generator()
@@ -66,21 +66,37 @@ def get_data_loaders(train_dir, val_dir, batch_size, seed=42):
 
     return train_loader, val_loader, test_loader
 
-
 def get_data_loader_test(test_dir, batch_size, seed=42):
+    """
+    Load the real test set with resizing, tensor conversion, and normalization.
+    
+    Args:
+        test_dir (str): Directory containing the test images.
+        batch_size (int): Batch size for the DataLoader.
+        seed (int): Random seed for reproducibility.
+
+    Returns:
+        DataLoader: A PyTorch DataLoader for the test dataset.
+    """
+    # Set the random seed for reproducibility
     g = torch.Generator()
     g.manual_seed(seed)
-
+    
+    # Define transformations for the test dataset
     test_transform = transforms.Compose([
-        transforms.Resize((300, 300)),
-        transforms.ToTensor(),
-        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+        transforms.Resize((300, 300)),  # Resize to 300x300
+        transforms.ToTensor(),         # Convert to PyTorch tensor
+        transforms.Normalize(          # Normalize with ImageNet stats
+            mean=[0.485, 0.456, 0.406],
+            std=[0.229, 0.224, 0.225]
+        )
     ])
 
-    # Load data from folder
+    # Load test dataset
     test_dataset = ImageFolderWIthPaths(test_dir, transform=test_transform)
 
-    # Dataloader for test dataset
+    # Create DataLoader for the test dataset
     test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, generator=g)
 
+    print(f"Test set size: {len(test_dataset)}")
     return test_loader

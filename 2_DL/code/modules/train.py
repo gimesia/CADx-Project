@@ -3,10 +3,11 @@
 import torch
 import torch.optim as optim
 import torch.nn as nn
+import os
 from modules.utils import set_seed
 
 
-def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler, num_epochs, device, seed = 42):
+def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler, num_epochs, device, save_path ="best_model_bin_2.pth", seed = 42):
 
     """
         Args:
@@ -29,6 +30,9 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
     train_losses = []
     val_losses = []
 
+    # Track best validation accuracy and model state
+    best_val_accuracy = 0.0
+    best_model_state = None
     for epoch in range(num_epochs):
         model.train()
         running_loss = 0.0
@@ -85,14 +89,35 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
         val_losses.append(epoch_val_loss)
         val_accuracy = correct_val / total_val
 
+        #Save best model based on val accuracy
+        if val_accuracy > best_val_accuracy:
+            best_val_accuracy = val_accuracy
+
+            best_model_state = {
+                "epoch":epoch + 1,
+                "model_state_dict": model.state_dict(),
+                "optimizer_state_dict":optimizer.state_dict(),
+                "scheduler_state_dict": scheduler.state_dict() if scheduler else None,
+                "val_accuracy":val_accuracy
+            }
+            
+            torch.save(best_model_state, save_path)
+            print(f"Best model saved with val acc: {val_accuracy:.4f} at epoch {epoch + 1}")
+
         if scheduler:
-            scheduler.step()
+            if isinstance(scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
+                scheduler.step(epoch_val_loss)
+            else:
+                scheduler.step()
 
         print(f"Epoch {epoch + 1} / {num_epochs}",
               f"Training Loss: {epoch_loss:.4f}",
               f"Training Accuracy: {train_accuracy:.4f}",
               f"Validation Loss: {epoch_val_loss:.4f}",
-              f"Validation Accuracy: {val_accuracy:.4f}")
+              f"Validation Accuracy: {val_accuracy:.4f}"
+              f"LR: {optimizer.param_groups[0]['lr']:.4f}")
+    
+    print(f"Training complete. Best validation accuracy: {best_val_accuracy:.4f}")
         
 
     return model, train_losses, val_losses
