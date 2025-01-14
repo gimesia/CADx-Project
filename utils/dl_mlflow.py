@@ -46,11 +46,14 @@ def _validate(model, loader, loss_function, device, logits=False, verbose=VERBOS
                 outputs_ = np.round(outputs_, decimals=0)
                 labels_ = labels.cpu().detach().numpy()
 
-                print(f"Labels: {labels_.squeeze()}")
-                print(f"Predictions: {outputs_.squeeze()}")
+                # print(f"Labels: {labels_.squeeze()}")
+                # print(f"Predictions: {outputs_.squeeze()}")
+                # print(f"Hits: {(np.sum(outputs_ == labels_).astype(int))}/{len(labels_)}")
+                # print(f"Loss: {loss.item()}")
 
-                print(f"Hits: {(np.sum(outputs_ == labels_).astype(int))}/{len(labels_)}")
-                print(f"Loss: {loss.item()}")
+                print(f"Batch {i + 1}:" +
+                      f"\n\tLoss: {loss.item()}" +
+                      f"\n\tHits: {(np.sum(outputs_ == labels_).astype(int))} / {len(labels_)}")
             all_labels.extend(list(labels_))
             all_preds.extend(list(outputs_))
 
@@ -80,11 +83,14 @@ def _train(model, loader, optimizer, loss_function, device, logits=False, verbos
             outputs_ = np.round(outputs_, decimals=0)
             labels_ = labels.cpu().detach().numpy()
 
-            print(f"Labels: {labels_.squeeze()}")
-            print(f"Predictions: {outputs_.squeeze()}")
+            # print(f"Labels: {labels_.squeeze()}")
+            # print(f"Predictions: {outputs_.squeeze()}")
+            # print(f"Hits: {(np.sum(outputs_ == labels_).astype(int))}/{len(labels_)}")
+            # print(f"Loss: {loss.item()}")
 
-            print(f"Hits: {np.sum(outputs_ == labels_).astype(int)}/{len(labels_)}")
-            print(f"Loss: {loss.item()}")
+            print(f"Batch {i + 1}:" +
+                  f"\n\tLoss: {loss.item()}" +
+                  f"\n\tHits: {(np.sum(outputs_ == labels_).astype(int))} / {len(labels_)}")
 
         loss.backward()
         optimizer.step()
@@ -96,7 +102,7 @@ def _train(model, loader, optimizer, loss_function, device, logits=False, verbos
 class MLFlowDLPipeline:
     def __init__(self, model, optimizer, loss_function,
                  train_loader: FactoryLoader, val_loader: FactoryLoader, name=None,
-                 challenge="Ch1", patience=5, logits=False):
+                 challenge="Ch1", patience=5, logits=False, lr_scheduler=None):
         self.challenge = challenge
         self.name = name
 
@@ -107,6 +113,7 @@ class MLFlowDLPipeline:
         self.optimizer = optimizer
         self.logits = logits
         self.loss_function = loss_function
+        self.lr_scheduler = lr_scheduler
 
         self.train_loader = train_loader.get_loader()
         self.val_loader = val_loader.get_loader()
@@ -149,6 +156,7 @@ class MLFlowDLPipeline:
         with mlflow.start_run(run_name=self.name):
             mlflow.log_params({
                 "learning_rate": self.optimizer.param_groups[0]['lr'],
+                "lr_scheduler": self.lr_scheduler.__class__.__name__ if self.lr_scheduler else None,
                 "batch_size": self.train_loader.batch_size,
                 "epochs": epochs,
                 "loss_function": self.loss_function.__class__.__name__,
@@ -199,6 +207,9 @@ class MLFlowDLPipeline:
                         logger.info('[EARLY STOP] Stopping training...')
                         break
 
+                if self.lr_scheduler:
+                    self.lr_scheduler.step(val_loss)
+
                 self.plot_losses(save=False, show=debug)
 
             self.plot_losses(save=True, show=True)
@@ -228,7 +239,9 @@ class MLFlowDLPipeline:
                 images = images.to(self.device)
                 labels = labels.to(self.device)
                 outputs = self.model(images)
+
                 predicted = torch.sigmoid(outputs) if self.logits else torch.round(outputs)
+
                 all_labels.extend(labels.cpu().numpy())
                 all_predictions.extend(predicted.cpu().numpy())
 

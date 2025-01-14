@@ -21,8 +21,8 @@ from torchvision.models import (
 )
 
 # Dataset path
-TRAIN_PATH = r"C:\Users\gimes\Src\repos\CADx-Project\dataset\binary\train"
-VAL_PATH = r"C:\Users\gimes\Src\repos\CADx-Project\dataset\binary\val"
+TRAIN_PATH = r"/dataset/binary/train"
+VAL_PATH = r"/dataset/binary/val"
 
 
 # Create preprocessing factory
