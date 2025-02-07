@@ -1,4 +1,3 @@
-
 # Analysis of Differences between Binary and Multiclass Feature Importances
 
 Examining the feature importance for binary classification (distinguishing between nevus and lesion) versus multiclass classification (distinguishing between melanoma, basal cell carcinoma, and squamous cell carcinoma) reveals some key distinctions. These differences provide insights into which features are most effective for simpler binary separation versus more nuanced multiclass differentiation.
