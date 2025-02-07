@@ -1,3 +1,4 @@
+# %%
 # Assuming you have a PreprocessMelanoma factory instance
 import numpy as np
 import torch
@@ -9,43 +10,15 @@ from utils.dl_mlflow import MLFlowDLPipeline
 from utils.loader import FactoryLoader
 from utils.preprocessing import PreprocessingFactory
 
-
-class SkinLesionCNN(nn.Module):
-    # input images are 224x224
-    def __init__(self):
-        super(SkinLesionCNN, self).__init__()
-        # Convolutional layers
-        self.conv1 = nn.Conv2d(in_channels=3, out_channels=64, kernel_size=3, padding=1)
-        self.conv2 = nn.Conv2d(in_channels=64, out_channels=128, kernel_size=3, padding=1)
-        self.conv3 = nn.Conv2d(in_channels=128, out_channels=64, kernel_size=3, padding=1)
-        # Fully connected layers
-        self.fc1 = nn.Linear(in_features=64 * 28 * 28, out_features=512)
-        self.fc2 = nn.Linear(in_features=512, out_features=1)  # Binary classification
-
-        # Apply Xavier initialization
-        self._initialize_weights()
-
-    def forward(self, x):
-        # Convolutional layers with ReLU and MaxPooling
-        x = F.leaky_relu_(self.conv1(x))
-        x = F.max_pool2d(x, kernel_size=2, stride=2)
-        x = F.leaky_relu_(self.conv2(x))
-        x = F.max_pool2d(x, kernel_size=2, stride=2)
-        x = F.leaky_relu_(self.conv3(x))
-        x = F.max_pool2d(x, kernel_size=2, stride=2)
-        # Flatten the tensor
-        x = x.view(x.size(0), -1)
-        # Fully connected layers
-        x = F.leaky_relu_(self.fc1(x))
-        x = self.fc2(x)
-        return torch.sigmoid(x)
-
-    def _initialize_weights(self):
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d) or isinstance(m, nn.Linear):
-                init.xavier_uniform_(m.weight)
-                if m.bias is not None:
-                    init.constant_(m.bias, 0)
+from torchvision.models import (
+    resnet50, ResNet50_Weights,
+    resnet152, ResNet152_Weights,
+    resnet101, ResNet101_Weights,
+    wide_resnet101_2, Wide_ResNet101_2_Weights,
+    efficientnet_v2_m, EfficientNet_V2_M_Weights,
+    vgg19_bn, VGG19_BN_Weights,
+    convnext_base, ConvNeXt_Base_Weights
+)
 
 # Dataset path
 TRAIN_PATH = r"C:\Users\gimes\Src\repos\CADx-Project\dataset\binary\train"
@@ -59,26 +32,48 @@ factory.normalize2float()
 factory.resize((224, 224))
 
 # Create data loaders
-PERCENT = 3
-BATCH_SIZE = 32
-train_loader = FactoryLoader(TRAIN_PATH, batch_size=BATCH_SIZE, factory=factory, percentage=PERCENT, shuffle=True)
-val_loader = FactoryLoader(VAL_PATH, batch_size=BATCH_SIZE, factory=factory, percentage=PERCENT, shuffle=True)
+PERCENT = 100
+for i in [24,32,48]:
+    print("CURRENT BATCH SIZE: ", i)
+    print("-----------------------------------")
+    BATCH_SIZE = i
+    train_loader = FactoryLoader(TRAIN_PATH, batch_size=BATCH_SIZE, factory=factory, percentage=PERCENT, shuffle=True)
+    val_loader = FactoryLoader(VAL_PATH, batch_size=BATCH_SIZE, factory=factory, percentage=PERCENT, shuffle=True)
 
-# Create model, optimizer and loss function
-model = SkinLesionCNN()
-optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
-criterion = nn.BCELoss()
+    # %%
+    # Create model, optimizer and loss function
+    model = efficientnet_v2_m(weights=EfficientNet_V2_M_Weights)
+    # Freeze the feature extractor
+    for param in model.features.parameters():
+        param.requires_grad = False
 
-# Create pipeline
-dl = MLFlowDLPipeline(model, optimizer, criterion, train_loader, val_loader, "CustomCNNmlflow")
+    model
+
+    # %%
+    # print(model.classifier)
+    num_features = model.classifier[1].in_features  # Get the number of input features to the classifier
+    model.classifier[1] = nn.Sequential(
+        nn.Linear(num_features, 512),
+        nn.ReLU(),
+        nn.Linear(512, 1),
+        nn.Sigmoid()
+    )
+    # print(model.classifier)
+    model.classifier
+    # %%
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+    criterion = nn.BCELoss()
+
+    # Create pipeline
+    dl = MLFlowDLPipeline(model, optimizer, criterion, train_loader, val_loader, "EfficientNet_V2_M")
 
 
-# val.show_images(80)
-# Train pipeline
-dl.train(epochs=3)
+    # val.show_images(80)
+    # Train pipeline
+    dl.train(epochs=50)
 
-# Evaluate pipeline
-print(dl.evaluate())
+    # Evaluate pipeline
+    print(dl.evaluate())
 
-# Plot losses
-dl.plot_losses()
+    # Plot losses
+    dl.plot_losses()

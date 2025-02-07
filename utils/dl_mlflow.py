@@ -9,9 +9,20 @@ import torch
 import mlflow
 import numpy as np
 import matplotlib.pyplot as plt
-from sklearn.metrics import classification_report, roc_curve, auc
+from mlflow.models import infer_signature
+from sklearn.metrics import classification_report, roc_curve, auc, confusion_matrix
 
 from utils.loader import FactoryLoader
+
+
+class ModelWrapper:
+    def __init__(self, model):
+        self.model = model
+
+    def predict(self, input_data):
+        # Ensure this method matches your model's prediction interface
+        return self.model(input_data)
+
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -88,19 +99,25 @@ def _train(model, loader, optimizer, loss_function, device, verbose=VERBOSE):
 class MLFlowDLPipeline:
     def __init__(self, model, optimizer, loss_function,
                  train_loader: FactoryLoader, val_loader: FactoryLoader, name=None,
-                 challange="Ch1", patience=5):
+                 challenge="Ch1", patience=5):
+        self.challenge = challenge
+        self.name = name
+
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.model = model
+        self.model = self.model.to(self.device)
+
         self.optimizer = optimizer
         self.loss_function = loss_function
+
         self.train_loader = train_loader.get_loader()
         self.val_loader = val_loader.get_loader()
-        self.model = self.model.to(self.device)
+
         self.best_model = {
             "model": None,
             "loss": float('inf')
         }
-        self.name = name
+
         self.training_losses = []
         self.validation_losses = []
         self.preprocessing_steps = train_loader.get_transformation_steps()
@@ -109,26 +126,33 @@ class MLFlowDLPipeline:
 
         current_dir = os.path.dirname(os.path.abspath(__file__))
         project_root = os.path.abspath(os.path.join(current_dir, os.pardir))
-        self.save_path = os.path.join(project_root, "2_DL", challange, "runs")
+
+        mlflow_tracking_dir = "file:///C:/Users/gimes/Src/repos/CADx-Project/mlruns"
+        mlflow_tracking_dir = "http://localhost:5000"
+        mlflow.set_tracking_uri(mlflow_tracking_dir)
+        print(f"MLflow runs will be saved in: {mlflow_tracking_dir}")
+
+        self.save_path = os.path.join(project_root, "2_DL", challenge, "runs")
         self.start_time = datetime.datetime.now()
         self.run_time = None
         self.save_path_id = os.path.join(self.save_path, self.start_time.strftime("%m-%d-%Hh%M") + f"_{name}")
 
         if not os.path.exists(self.save_path_id):
             os.makedirs(self.save_path_id)
+
         print(f"Saving results to directory:\n{self.save_path_id}")
-        print(f"Saving mlflow results:\n{self.save_path}")
 
     def train(self, epochs, debug=True,
               metrics=['accuracy', 'f1_score', 'recall', "precision", "macro avg"]):
         self.training_losses = []
         self.validation_losses = []
+
+        mlflow.set_experiment(self.challenge)
         with mlflow.start_run(run_name=self.name):
             mlflow.log_params({
                 "learning_rate": self.optimizer.param_groups[0]['lr'],
                 "batch_size": self.train_loader.batch_size,
                 "epochs": epochs,
-                "model_name": self.name,
                 "loss_function": self.loss_function.__class__.__name__,
                 "optimizer": self.optimizer.__class__.__name__,
                 "preprocessing_steps": self.preprocessing_steps
@@ -180,8 +204,16 @@ class MLFlowDLPipeline:
             self.plot_losses(save=True, show=True)
             self.plot_roc_auc(save=True, show=True)
 
+            # Create a sample input for signature inference
+            sample_input = next(iter(self.val_loader))[0].to(self.device).cpu().numpy()
 
-            mlflow.sklearn.log_model(self.best_model["model"], artifact_path="model")
+            # TODO! fix signature and saving
+            wrapped_model = ModelWrapper(self.best_model["model"])
+            mlflow.sklearn.log_model(wrapped_model, artifact_path="model",
+                                     registered_model_name=self.name,
+                                     signature=False  # Disables automatic signature inference
+                                     #input_example=sample_input,
+                                     )
             mlflow.log_artifact(os.path.join(self.save_path_id, 'losses.png'))
             mlflow.log_artifact(os.path.join(self.save_path_id, 'roc_auc.png'))
             mlflow.log_artifact(os.path.join(self.save_path_id, 'hyperparameters.json'))
