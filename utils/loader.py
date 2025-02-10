@@ -7,7 +7,6 @@ from torchvision import datasets, transforms
 from torch.utils.data import Subset
 from utils.preprocessing import PreprocessingFactory, PreprocessMelanoma
 
-
 # To create a balanced subset
 def balanced_subset(dataset, percentage=100):
     # If percentage is 100, use all dataset indices
@@ -29,22 +28,28 @@ def balanced_subset(dataset, percentage=100):
 
     return subset_indices
 
-
 class FactoryLoader:
     def __init__(self, path: str, batch_size=32,
-                 factory: PreprocessingFactory = None, percentage=100, shuffle=False):
+                 factory: PreprocessingFactory = None, percentage=100, shuffle=False,
+                 augmentations=None):
 
         # Define the transformation pipeline
+        transform_list = []
+
+        # Add augmentations if provided
+        if augmentations:
+            transform_list.extend(augmentations)
+
+        # Add factory-based preprocessing or default preprocessing
         if factory is not None:
-            transform = transforms.Compose([
+            transform_list.extend([
                 transforms.Lambda(lambda img: np.array(img)),  # Convert PIL to NumPy
                 PreprocessMelanoma(factory),  # Apply the factory-based preprocessing
             ])
         else:
-            # Default transformation if no factory is provided
-            transform = transforms.Compose([
-                transforms.ToTensor(),  # Convert image to PyTorch tensor
-            ])
+            transform_list.append(transforms.ToTensor())  # Convert image to PyTorch tensor
+
+        transform = transforms.Compose(transform_list)
 
         # Load the dataset using the transformation pipeline
         self.batch_size = batch_size
